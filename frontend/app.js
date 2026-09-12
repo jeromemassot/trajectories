@@ -26,6 +26,7 @@
 
   // ---------------------------------------------------------------- init --
   async function init() {
+    initTheme();
     bindControls();
     bindTabs();
     const health = await fetchJSON("/api/health");
@@ -38,6 +39,32 @@
     renderObservationsTable();
 
     await runResolve();
+  }
+
+  function initTheme() {
+    const saved = localStorage.getItem("trajectories_theme") || "system";
+    setTheme(saved);
+
+    document.querySelectorAll(".theme-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setTheme(btn.dataset.themeVal);
+      });
+    });
+  }
+
+  function setTheme(mode) {
+    if (mode === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    } else if (mode === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+      mode = "system";
+    }
+    localStorage.setItem("trajectories_theme", mode);
+    document.querySelectorAll(".theme-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.themeVal === mode);
+    });
   }
 
   function fetchJSON(url, opts) {

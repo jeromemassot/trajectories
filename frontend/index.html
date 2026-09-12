@@ -4,6 +4,14 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Trajectories &mdash; Entity Resolution Prototype</title>
+<script>
+  (function() {
+    var t = localStorage.getItem("trajectories_theme");
+    if (t === "light" || t === "dark") {
+      document.documentElement.setAttribute("data-theme", t);
+    }
+  })();
+</script>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,7 +20,14 @@
     <h1>Trajectories</h1>
     <p class="subtitle">Temporal entity resolution over a mock observation feed &mdash; proof of concept</p>
   </div>
-  <div class="topbar-status" id="statusBadge">loading…</div>
+  <div class="topbar-right">
+    <div class="theme-switch" role="group" aria-label="Display mode">
+      <button type="button" class="theme-btn" data-theme-val="system" title="System mode">💻 System</button>
+      <button type="button" class="theme-btn" data-theme-val="light" title="Light mode">☀️ Light</button>
+      <button type="button" class="theme-btn" data-theme-val="dark" title="Dark mode">🌙 Dark</button>
+    </div>
+    <div class="topbar-status" id="statusBadge">loading…</div>
+  </div>
 </header>
 
 <main>
