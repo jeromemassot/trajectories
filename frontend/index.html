@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trajectories &mdash; Entity Resolution Prototype</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>Trajectories</h1>
+    <p class="subtitle">Temporal entity resolution over a mock observation feed &mdash; proof of concept</p>
+  </div>
+  <div class="topbar-status" id="statusBadge">loading…</div>
+</header>
+
+<main>
+  <section class="panel controls" aria-label="Controls">
+    <h2>Pipeline controls</h2>
+    <p class="hint">Adjust the match threshold and the relative weight of each evidence
+      dimension, then watch entities merge / split live. Nothing here is hard-coded per
+      dataset &mdash; it is the same scoring function described in the write-up.</p>
+
+    <label class="slider-row">
+      <span>Match threshold <b id="thresholdVal">0.65</b></span>
+      <input type="range" id="threshold" min="0.05" max="0.95" step="0.01" value="0.65" />
+    </label>
+
+    <div class="weight-grid">
+      <label class="slider-row"><span>Name similarity <b id="w_name_val"></b></span>
+        <input type="range" class="weight" data-key="name" min="0" max="6" step="0.1" value="3.0" /></label>
+      <label class="slider-row"><span>DOB match <b id="w_dob_val"></b></span>
+        <input type="range" class="weight" data-key="dob" min="0" max="6" step="0.1" value="1.5" /></label>
+      <label class="slider-row"><span>Spatio-temporal kernel <b id="w_spatiotemporal_val"></b></span>
+        <input type="range" class="weight" data-key="spatiotemporal" min="0" max="6" step="0.1" value="1.2" /></label>
+      <label class="slider-row"><span>Co-occurrence (household/employer/token) <b id="w_cooccurrence_val"></b></span>
+        <input type="range" class="weight" data-key="cooccurrence" min="0" max="6" step="0.1" value="2.5" /></label>
+      <label class="slider-row"><span>Kinematic-violation penalty <b id="w_kinematic_penalty_val"></b></span>
+        <input type="range" class="weight" data-key="kinematic_penalty" min="0" max="10" step="0.2" value="4.0" /></label>
+      <label class="slider-row"><span>DOB-conflict penalty <b id="w_dob_conflict_penalty_val"></b></span>
+        <input type="range" class="weight" data-key="dob_conflict_penalty" min="0" max="10" step="0.2" value="5.0" /></label>
+    </div>
+
+    <div class="controls-actions">
+      <button id="resetBtn">Reset to defaults</button>
+      <label class="checkbox-row"><input type="checkbox" id="truthToggle" checked />
+        Show hidden ground truth (demo/evaluation only &mdash; a real system would not have this)</label>
+    </div>
+  </section>
+
+  <section class="panel metrics" aria-label="Metrics">
+    <div class="metric-card"><span class="metric-label">Observations</span><span class="metric-value" id="mObs">–</span></div>
+    <div class="metric-card"><span class="metric-label">True entities (hidden)</span><span class="metric-value" id="mTrue">–</span></div>
+    <div class="metric-card"><span class="metric-label">Predicted clusters</span><span class="metric-value" id="mPred">–</span></div>
+    <div class="metric-card highlight"><span class="metric-label">Pairwise precision</span><span class="metric-value" id="mPrec">–</span></div>
+    <div class="metric-card highlight"><span class="metric-label">Pairwise recall</span><span class="metric-value" id="mRec">–</span></div>
+    <div class="metric-card highlight"><span class="metric-label">Pairwise F1</span><span class="metric-value" id="mF1">–</span></div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="entities">Resolved entities</button>
+    <button class="tab" data-tab="map">Trajectory map</button>
+    <button class="tab" data-tab="pairs">Candidate pairs</button>
+    <button class="tab" data-tab="observations">Raw observations</button>
+  </nav>
+
+  <section class="panel tab-panel" id="tab-entities">
+    <p class="hint">Each card is one <b>latent entity</b> the pipeline reconstructed from
+      raw, independently-timestamped observations. A red border means the cluster mixes
+      more than one true individual (over-merge); entities the pipeline split into more
+      than one cluster are flagged below the list (under-merge).</p>
+    <div id="splitWarning" class="warning" hidden></div>
+    <div id="entityList" class="entity-list"></div>
+  </section>
+
+  <section class="panel tab-panel" id="tab-map" hidden>
+    <p class="hint">Pick a resolved entity to draw its reconstructed trajectory
+      (chronological path across observed locations). Point color intensity encodes
+      recency; hover a point for details.</p>
+    <select id="mapEntitySelect"></select>
+    <svg id="mapSvg" viewBox="0 0 900 480" role="img" aria-label="Trajectory map"></svg>
+    <div id="mapTooltip" class="map-tooltip" hidden></div>
+  </section>
+
+  <section class="panel tab-panel" id="tab-pairs" hidden>
+    <p class="hint">Every candidate pair produced by blocking, with its full feature
+      breakdown. This is the pipeline's evidence trail &mdash; use it to see exactly why
+      two observations were linked, rejected, or hard-blocked.</p>
+    <div class="pairs-filter">
+      <label>Min score <input type="number" id="pairMinScore" min="0" max="1" step="0.05" value="0" /></label>
+      <label><input type="checkbox" id="pairOnlyLinked" /> Linked only</label>
+      <label><input type="checkbox" id="pairOnlyBlocked" /> Hard-blocked only</label>
+      <span id="pairCount" class="pair-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="pairsTable">
+        <thead>
+          <tr><th>Score</th><th>Obs A</th><th>Obs B</th><th>First</th><th>Last</th><th>DOB</th>
+              <th>Spatio-temporal</th><th>Co-occ.</th><th>Velocity (km/h)</th><th>Status</th></tr>
+        </thead>
+        <tbody id="pairsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel tab-panel" id="tab-observations" hidden>
+    <p class="hint">The raw, immutable observation feed &mdash; the only thing a real
+      system actually ingests. Ground-truth labels are shown here only because this is a
+      mock dataset built to demonstrate the pipeline.</p>
+    <div class="table-wrap">
+      <table id="obsTable">
+        <thead>
+          <tr><th>ID</th><th>Timestamp</th><th>First</th><th>Last</th><th>DOB</th><th>City</th>
+              <th>Household</th><th>Employer</th><th>Token</th><th class="truth-col">Truth</th></tr>
+        </thead>
+        <tbody id="obsBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Proof-of-concept &mdash; synthetic data only. See README.md for algorithmic scope and
+  known limitations.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
