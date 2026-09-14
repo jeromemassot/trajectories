@@ -1,191 +1,305 @@
-# Trajectories — Temporal Entity Resolution Prototype
+# Trajectories — Temporal Entity Resolution Engine & Interactive Visualizer
 
-A proof-of-concept for estimating the probability that two independently
-timestamped observations belong to the same real person, using name,
-date-of-birth, location, timestamp, and shared-context (household/employer/
-persistent-token) evidence — and clustering observations into reconstructed
-"entities" (trajectories) accordingly.
+![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)
+![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
+![Leaflet](https://img.shields.io/badge/Leaflet.js-1.9.4-199900?style=for-the-badge&logo=leaflet&logoColor=white)
+![CartoDB](https://img.shields.io/badge/CartoDB%20%2F%20OSM-Maps-0080FF?style=for-the-badge&logo=openstreetmap&logoColor=white)
+![Dependencies](https://img.shields.io/badge/Dependencies-Zero%20External%20PyPI-success?style=for-the-badge)
 
-This implements a **deliberately simplified** version of the pipeline
-described in the project brief. See "What changed from the draft" below for
-the reasoning.
+**Trajectories** is an explainable, zero-dependency engine and interactive web application designed to solve the problem of **temporal entity resolution** (tracking and linking records belonging to the same individual over time).
 
-## Quick start
+Given a noisy, independently timestamped stream of observations (such as administrative logs, sensor records, address registrations, or travel sightings), **Trajectories** estimates the probability that disparate observations represent the same real-world human being across years of life events—reconstructing their true chronological paths ("trajectories") while enforcing biological and physical laws.
 
-No third-party packages required — everything is pure Python 3 standard
-library plus vanilla HTML/CSS/JS (see "Why no dependencies" below).
+---
 
-```bash
-cd backend
-python3 data_gen.py     # (re)generates backend/data/mock_observations.json — already included
-python3 server.py       # serves the API + frontend on http://localhost:8000
+## Table of Contents
+
+1. [The Problem: Why Entity Resolution Across Time is Hard](#the-problem-why-entity-resolution-across-time-is-hard)
+2. [Methodological Approach & Algorithms Explained](#methodological-approach--algorithms-explained)
+   - [Stage 1: Blocking (Smart Candidate Filtering)](#stage-1-blocking-smart-candidate-filtering)
+   - [Stage 2: Pairwise Evidence Scoring](#stage-2-pairwise-evidence-scoring)
+   - [Stage 3: Constrained Agglomerative Clustering](#stage-3-constrained-agglomerative-clustering)
+   - [Stage 4: Mathematical Quality Evaluation](#stage-4-mathematical-quality-evaluation)
+3. [Application Functionalities & User Interface](#application-functionalities--user-interface)
+4. [Repository Architecture & Codebase Walkthrough](#repository-architecture--codebase-walkthrough)
+5. [Quick Start Guide](#quick-start-guide)
+6. [Automated Testing Suite](#automated-testing-suite)
+
+---
+
+## The Problem: Why Entity Resolution Across Time is Hard
+
+Imagine a detective looking at isolated records collected across a decade:
+- In 2017, **"Amanda Brown"** is observed in Phoenix, Arizona.
+- In 2018, **"Amanda Brown"** is observed in Denver, Colorado.
+- In 2019, **"Jane Smith"** lives in Boston, Massachusetts.
+- In 2021, **"Jane Miller"** lives in Chicago, Illinois with her spouse and shares an employer ID.
+
+Are the two Amanda Browns the same person? Did Jane Smith change her surname to Miller when getting married and move to Chicago?
+
+In real-world data systems:
+1. **People change their attributes**: Surnames mutate upon marriage or divorce, first names appear as nicknames ("Bob" vs. "Robert", "Liz" vs. "Elizabeth"), and typographical or OCR errors occur.
+2. **People relocate**: Individuals move between cities, creating geographic gaps.
+3. **Simultaneous discontinuities occur**: When an individual gets married and moves to a new city simultaneously, *both* their primary location and surname change at once. Traditional single-attribute matching fails completely.
+4. **Confounders mislead simple algorithms**:
+   - *Entity Chimerism*: Spouses or siblings share identical surnames, addresses, and household IDs, tempting naive systems to merge them into one chimeric person.
+   - *Name Collisions*: Millions of unrelated people share common names (e.g., "John Smith") in different cities.
+   - *Physical Teleportation*: An identity cannot physically appear in New York and Los Angeles on the same afternoon.
+
+**Trajectories** reconstructs the truth from these noisy breadcrumbs.
+
+---
+
+## Methodological Approach & Algorithms Explained
+
+The resolution engine follows a four-stage pipeline designed for **accuracy, physical plausibility, and full explainability**.
+
+```mermaid
+flowchart TD
+    subgraph S1 [Stage 1: Blocking]
+        A[Raw Observation Stream] --> B[Generate Phonetic, Token & DOB Keys]
+        B --> C[Candidate Observation Pairs]
+    end
+
+    subgraph S2 [Stage 2: Pairwise Evidence Scoring]
+        C --> D[Name Similarity Jaro-Winkler + Soundex + Nicknames]
+        C --> E[DOB Concordance & Conflict Detection]
+        C --> F[Spatio-Temporal Continuity Kernel]
+        C --> G[Co-occurrence Context Household, Employer, Token]
+        D & E & F & G --> H[Weighted Logistic Probability]
+        H --> I[Multiplicative Kinematic & DOB Conflict Penalties]
+    end
+
+    subgraph S3 [Stage 3: Constrained Clustering]
+        I --> J[Sort Edges by Descending Probability]
+        J --> K{Transitive Cannot-Link Check}
+        K -->|Conflict: Teleportation or DOB Mismatch| L[Reject Edge Blocked]
+        K -->|Compatible| M[Union-Find Merge]
+        M --> N[Resolved Trajectory Clusters]
+    end
+
+    subgraph S4 [Stage 4: Evaluation & UI]
+        N --> O[Dynamic Leaflet Trajectory Map]
+        N --> P[O N Contingency Metric Evaluation]
+    end
 ```
 
-Then open **http://localhost:8000/** in a browser.
+### Stage 1: Blocking (Smart Candidate Filtering)
 
-## What you're looking at
+If a dataset has $N$ observations, comparing every record against every other record requires $\frac{N(N-1)}{2}$ comparisons ($O(N^2)$). For 300 records, that is ~45,000 comparisons; for 100,000 records, it exceeds 5 billion!
 
-- **Pipeline controls** — the match threshold and per-dimension weights are
-  live; every change re-runs resolution over the full dataset and re-renders
-  the UI. This is meant to be played with, not just looked at.
-- **Resolved entities** — the clusters the pipeline produced. A red card
-  mixes more than one true person (over-merge); a banner above the list
-  flags any true person the pipeline split into multiple clusters
-  (under-merge). Ground truth is shown because this is a demo dataset — a
-  real system obviously would not have it, which is exactly why the metrics
-  panel exists: it's the stand-in for the labeled evaluation set you'd need
-  in production.
-- **Trajectory map** — a dynamic interactive map (Leaflet with CartoDB Voyager
-  and Dark Matter tiles, automatically adapting to light/dark display modes)
-  showing an entity's reconstructed chronological path across observed locations,
-  complete with pan/zoom, interactive waypoints, and observation popups.
-- **Candidate pairs** — every pair blocking produced, with its full feature
-  breakdown (name/DOB/spatio-temporal/co-occurrence/velocity) and whether it
-  was linked, rejected, or hard-blocked. This is the audit trail — for a
-  system whose output is a probability, "why did it decide that" has to be
-  answerable, and this tab is the answer.
-- **Raw observations** — the actual input feed.
+**How it works**:
+Instead of exhaustive comparison, **blocking** groups observations into "buckets" based on multiple coarse keys:
+1. **Phonetic Name Key**: Soundex of first name + Soundex of last name (e.g., `("R163", "S530")` for Robert Smith).
+2. **DOB + First Name Key**: Birth year + first name Soundex (e.g., `("1984", "R163")`).
+3. **Household Key**: Shared household identifier (`household_id`).
+4. **Persistent Token Key**: Any stable identifier, such as a masked device ID or tax token (`persistent_token`).
 
-## Mock dataset
+Any two records that share **at least one** bucket become a *candidate pair*. This multi-index strategy ensures that even if someone experiences a simultaneous name change and relocation, their shared household ID or persistent token ensures they are still paired and evaluated.
 
-`backend/data_gen.py` generates ~290 synthetic observations for ~28 ground
-truth individuals (seeded, reproducible), specifically constructed to
-exercise the failure modes named in the brief:
+---
 
-| Scenario | What it tests |
-|---|---|
-| Maiden → married surname change | attribute mutation over time |
-| Relocation to a new city | spatio-temporal continuity across a real gap |
-| **Simultaneous** name change + relocation | the "discontinuity" case — no single attribute survives, so the pipeline must lean on household/token continuity |
-| Siblings/spouses sharing surname + address + household id | entity chimerism risk (over-merging) |
-| Two unrelated people with the identical full name in different cities | blocking/kinematic rejection of a name collision |
-| Two people under the same name observed **on the same day, far apart** | the anti-reflexive / kinematic-impossibility hard constraint |
-| Missing DOB / missing address on ~10-12% of observations | robustness to partial data |
-| Nicknames, typos, OCR-style character transpositions on ~15-35% of name fields | string-similarity robustness |
+### Stage 2: Pairwise Evidence Scoring
 
-Ground truth (`entity_id_truth`) is carried in the JSON purely for the
-metrics panel; `resolution.py` never reads that field.
+For each candidate pair $(O_i, O_j)$, the engine evaluates four complementary dimensions of evidence:
 
-## Architecture
+1. **Name Similarity ($S_{\text{name}} \in [0, 1]$)**:
+   - Evaluates string distance using the **Jaro-Winkler metric** (giving higher weight to common initial characters).
+   - Incorporates a **nickname equivalence dictionary** (recognizing that "Bill" and "William", or "Bob" and "Robert", represent the same name with 95% similarity).
+   - Adds a phonetic bonus if their Soundex representations match.
+   - Calculates a weighted composite: $70\%$ first name similarity (stronger discriminator among family members) and $30\%$ surname similarity.
+
+2. **Date of Birth Agreement ($S_{\text{dob}} \in [0, 1]$)**:
+   - Identical DOBs: $1.0$.
+   - Missing DOB on either record: $0.5$ (treated as uninformative neutral evidence, neither rewarded nor penalized).
+   - Confirmed mismatch: $0.0$, and crucially flags a **biological conflict** (`dob_conflict = True`).
+
+3. **Spatio-Temporal Continuity Kernel ($K_{\text{st}} \in [0, 1]$)**:
+   - Physical human mobility exhibits natural decay over time and distance:
+     $$K_{\text{st}}(O_i, O_j) = \exp\left(-\frac{\Delta t}{\tau}\right) \times \exp\left(-\frac{\Delta d}{\sigma}\right)$$
+     where $\Delta t$ is elapsed days, $\Delta d$ is geographic distance (calculated via the great-circle **Haversine formula**), $\tau = 365\text{ days}$, and $\sigma = 80\text{ km}$.
+   - Two sightings in the same neighborhood within weeks receive a strong score; observations years apart or across the country naturally attenuate unless reinforced by other evidence.
+   - Missing geographic coordinates return a neutral baseline rather than an artificial zero-distance proximity reward.
+
+4. **Co-occurrence & Context ($S_{\text{context}} \in [0, 1]$)**:
+   - Shared persistent token: $+0.98$ (near-certain anchor).
+   - Shared household ID: $+0.35$ (strong family continuity).
+   - Shared employer ID: $+0.30$ (professional continuity).
+
+#### Logistic Squashing & Disqualification Multipliers
+The evidence dimensions are combined into a linear logit and transformed through the standard logistic function:
+$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_{st}(K_{\text{st}} - 0.4) + w_c S_{\text{context}}\right)\right)}$$
+
+Near-immutable biological and physical laws are **disqualifying**, not merely additive votes:
+- If a confirmed DOB mismatch exists, the probability is crushed multiplicatively:
+  $$P \leftarrow P \times \exp(-w_{\text{dob\_conflict\_penalty}})$$
+- If the required velocity between two observations exceeds physical limits ($v > 950\text{ km/h}$, commercial jet speed), the probability is smoothly crushed proportional to the velocity overshoot.
+
+---
+
+### Stage 3: Constrained Agglomerative Clustering
+
+Once pairs are scored, they must be clustered into complete individual trajectories. A naive algorithm might connect any pair above a threshold. However, this causes **transitive chaining errors**:
 
 ```
-backend/
-  data_gen.py     mock data generator
-  resolution.py   the actual algorithm: blocking -> scoring -> clustering -> eval
-  server.py       stdlib HTTP server: 3 JSON routes + static file serving
-  data/mock_observations.json
-frontend/
-  index.html, styles.css, app.js    vanilla JS single-page app, no build step
+[Observation A (Born 1974)] <---(Score 0.85)---> [Observation B (DOB Missing)] <---(Score 0.80)---> [Observation C (Born 1965)]
 ```
 
-`resolution.py` is the only file that matters algorithmically; everything
-else is plumbing. It has zero dependency on `server.py`, so it's directly
-unit-testable and directly portable into a different serving layer.
+If $A$ merges with $B$, and $B$ merges with $C$, naive clustering would conclude that $A$ and $C$ are the same person—merging someone born in 1974 with someone born in 1965!
 
-### Pipeline stages (mirroring the brief's 4-stage architecture)
+```mermaid
+graph LR
+    subgraph Naive Clustering [Naive Chaining: False Merge]
+        A1[Obs A: Born 1974] ---|Score: 0.85| B1[Obs B: Missing DOB]
+        B1 ---|Score: 0.80| C1[Obs C: Born 1965]
+        style A1 fill:#ffe3e3,stroke:#e03131
+        style B1 fill:#fff3bf,stroke:#f08c00
+        style C1 fill:#ffe3e3,stroke:#e03131
+    end
 
-1. **Blocking** (`candidate_pairs`) — LSH-style: each observation is hashed
-   into several buckets (soundex(first)+soundex(last); birth-year +
-   soundex(first); persistent token; household id) and any two observations
-   sharing *any* bucket become a candidate pair. This is what gives recall
-   across a simultaneous name+address change — the persistent-token and
-   household buckets don't care that the name changed.
-2. **Pairwise scoring** (`score_pair`) — a weighted linear combination of
-   name similarity (Jaro-Winkler + phonetic + nickname table), DOB
-   agreement, a spatio-temporal exponential-decay kernel, and a
-   co-occurrence score (shared household/employer/persistent-token),
-   squashed through a logistic function, exactly as
-   `sigma(w_s·Sim + w_t·kinematic + w_c·Context)` in the brief. Two
-   near-immutable signals — a **confirmed DOB mismatch** and a
-   **kinematically impossible velocity** — are applied as *multiplicative*
-   crushes on top of that score rather than additive votes, because "the
-   birthdate doesn't match" should not be something enough co-occurring
-   evidence can out-vote.
-3. **Clustering** (`cluster_pairs`) — a constrained greedy union-find:
-   candidate edges above threshold are unioned in descending score order,
-   *unless* doing so would merge two clusters that contain a hard
-   cannot-link pair. That cannot-link set is exactly the brief's
-   anti-reflexive constraint: two observations within a day of each other
-   but >150km apart are permanently forbidden from ending up in the same
-   cluster, however similar everything else about them looks.
-4. **Evaluation** (`evaluate`) — pairwise precision/recall/F1 against the
-   hidden ground truth, purely for this demo.
+    subgraph Constrained Clustering [Trajectories Engine: Enforced Cannot-Link]
+        A2[Obs A: Born 1974] ---|Score: 0.85| B2[Obs B: Missing DOB]
+        B2 -.-x|CANNOT-LINK ENFORCED| C2[Obs C: Born 1965]
+        style A2 fill:#d3f9d8,stroke:#2b8a3e
+        style B2 fill:#d3f9d8,stroke:#2b8a3e
+        style C2 fill:#e8ecff,stroke:#3b5bdb
+    end
+```
 
-### Default operating point
+**The Constrained Union-Find Solution**:
+1. Candidate edges are sorted in descending order of score.
+2. An edge between cluster $C_1$ and cluster $C_2$ is merged **if and only if** no member in $C_1$ has a **cannot-link constraint** with any member in $C_2$.
+3. Cannot-link constraints include:
+   - **Confirmed DOB Mismatch**: People cannot have two different birthdates.
+   - **Anti-Reflexive Kinematic Violation**: The same individual cannot appear on the same calendar day in two distant cities ($>150\text{ km}$ apart).
 
-At the shipped defaults (threshold 0.65), with the transitive cannot-link
-propagation for confirmed DOB mismatches, the pipeline reaches
-**precision = 1.000, recall = 1.000, F1 = 1.000 (28/28 clusters)** on the mock
-dataset out of the box (0 false merges, 0 false splits).
+This constraint is enforced **transitively across entire clusters**, ensuring pristine cluster purity.
 
-Crucially, confirmed DOB mismatches are enforced as **transitive cannot-link constraints**
-in agglomerative clustering (alongside the anti-reflexive kinematic impossibility
-constraint). This prevents intermediate observations with missing DOBs from
-acting as transitive bridges between individuals with conflicting birthdates
-(resolving the Amanda Brown name collision confounder).
+---
 
-Candidate pair features are also precomputed and cached on server startup, allowing
-live threshold and weight slider adjustments to re-cluster in **<15 ms** for
-instantaneous UI feedback.
+### Stage 4: Mathematical Quality Evaluation
 
-### Running tests
+To evaluate performance without quadratic slowdowns, evaluation uses an $O(N)$ contingency table algorithm comparing predicted clusters against hidden ground-truth entities:
+- **True Positive (TP)**: Two observations belonging to the same real person placed in the same cluster.
+- **False Positive (FP)**: Two observations of different people mistakenly merged (over-merge).
+- **False Negative (FN)**: Two observations of the same person split into different clusters (under-merge).
 
-An automated test suite covering phonetic matching, kinematics, spatio-temporal
-decay, constraint propagation, and end-to-end resolution is included:
+$$\text{Precision} = \frac{\text{TP}}{\text{TP} + \text{FP}}, \quad \text{Recall} = \frac{\text{TP}}{\text{TP} + \text{FN}}, \quad F_1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}$$
+
+At the default operating threshold ($0.65$), the engine achieves:
+- **Pairwise Precision**: `1.0000` (Zero false merges)
+- **Pairwise Recall**: `1.0000` (Zero false splits)
+- **Pairwise $F_1$ Score**: `1.0000` (Perfect reconstruction across all benchmark entities)
+
+---
+
+## Application Functionalities & User Interface
+
+The application features a single-page web interface served directly by the Python backend:
+
+### 1. Live Pipeline Controls & Real-Time Tuning
+- **Match Threshold Slider**: Adjust the acceptance threshold between $0.05$ and $0.95$.
+- **Dimension Weight Sliders**: Fine-tune the relative importance of Name Similarity, DOB Match, Spatio-temporal Kernel, Co-occurrence, Kinematic Penalty, and DOB Conflict Penalty.
+- **Precomputed In-Memory Feature Cache**: Adjusting sliders re-scores and re-clusters the dataset in **$<15\text{ ms}$**, providing smooth, instantaneous visual feedback.
+
+### 2. Live Performance Metrics
+- Instant display of Total Observations, True Entities, Predicted Clusters, Precision, Recall, and $F_1$ Score.
+
+### 3. Dynamic Interactive Trajectory Map (Leaflet.js)
+- **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with CartoDB Voyager (light) and Dark Matter (dark) tiles.
+- **Chronological Path Trajectories**: Dashed path lines tracking an entity's geographic movements across cities and years.
+- **Color-Coded Waypoints**: Waypoint markers shift in color from cool blue (earliest observation) to warm coral (most recent observation) to visualize temporal progression.
+- **Interactive Observation Popups**: Clicking any waypoint displays full observation metadata: Date, City, Street Address, DOB, Household ID, Employer ID, and Ground Truth ID.
+- **"Fit Route" Button**: Instantly centers and zooms the camera to frame the selected individual's path.
+- **Dataset Context Layer**: Subtle background markers plot all other sightings across the country on hover.
+
+### 4. Display Mode Switcher (System / Light / Dark)
+- Segmented toggle (`💻 System`, `☀️ Light`, `🌙 Dark`) in the top bar.
+- Automatically swaps interface colors and **map tile themes** (CartoDB Voyager $\leftrightarrow$ CartoDB Dark Matter) in real-time.
+- Persists user preferences in `localStorage`.
+
+### 5. Candidate Pairs Audit Trail
+- A dedicated inspector table listing every candidate pair generated by blocking.
+- Displays exact mathematical sub-scores (`first_name_sim`, `last_name_sim`, `dob_sim`, `st_kernel`, `cooccurrence`, `velocity_kmh`) and status (`linked`, `candidate`, `hard-blocked`, `dob-conflict`).
+- Provides complete explainability for why any two records were linked or rejected.
+
+### 6. Raw Observations Feed
+- Searchable and sortable tabular view of the input data feed.
+
+---
+
+## Repository Architecture & Codebase Walkthrough
+
+```
+Trajectories/
+├── backend/
+│   ├── resolution.py        # Core resolution engine: blocking, scoring, clustering, evaluation
+│   ├── server.py            # Zero-dependency HTTP server and JSON REST API
+│   ├── data_gen.py          # Synthetic population & noisy observation feed generator
+│   ├── tests/
+│   │   └── test_resolution.py # Automated unit & integration test suite
+│   └── data/
+│       └── mock_observations.json # Pre-generated benchmark observation dataset
+├── frontend/
+│   ├── index.html           # Single-page interface markup with Leaflet integration
+│   ├── styles.css           # Responsive styling with light/dark theme variables
+│   └── app.js               # Frontend controller, state manager, and map renderer
+├── .gitignore               # Standard Python and editor exclusions
+├── README.md                # Comprehensive documentation
+└── THOUGHTS.md              # Technical design notes, complexity analysis & roadmap
+```
+
+### Key Modules:
+- [`backend/resolution.py`](file:///home/jeromemassot/Projects/Trajectories/backend/resolution.py): Independent algorithmic core with zero web dependencies. Contains hand-rolled string metrics (Jaro-Winkler, Soundex), Haversine spatial calculations, logistic squashing, Union-Find with cannot-link constraints, and $O(N)$ contingency evaluation.
+- [`backend/server.py`](file:///home/jeromemassot/Projects/Trajectories/backend/server.py): Implemented using Python's standard `http.server.ThreadingHTTPServer`. Precomputes invariant candidate features at startup to enable sub-15ms re-scoring on live parameter changes.
+- [`backend/data_gen.py`](file:///home/jeromemassot/Projects/Trajectories/backend/data_gen.py): Generates synthetic populations specifically tailored with realistic confounders (marriage surname changes, moves, simultaneous disruptions, name collisions, and sibling entity chimerism).
+- [`frontend/app.js`](file:///home/jeromemassot/Projects/Trajectories/frontend/app.js): Vanilla JavaScript controller managing UI state, API calls, dynamic Leaflet map tile rendering, and theme switching.
+
+---
+
+## Quick Start Guide
+
+### Prerequisites
+- **Python 3.8+** installed on your system.
+- **No external packages required** — everything runs strictly on the Python Standard Library.
+
+### Running the Application
+
+1. **Start the backend server**:
+   ```bash
+   python3 backend/server.py
+   ```
+   *(Or specify a custom port: `python3 backend/server.py 8080`)*
+
+2. **Open your browser**:
+   Navigate to **[http://localhost:8000/](http://localhost:8000/)**.
+
+3. **(Optional) Regenerate mock data**:
+   To generate a fresh synthetic observation feed:
+   ```bash
+   python3 backend/data_gen.py
+   ```
+
+---
+
+## Automated Testing Suite
+
+The repository includes a comprehensive unit and integration test suite covering phonetic matching, kinematics, neutral missing value baselines, constraint propagation, and end-to-end benchmark resolution:
 
 ```bash
 python3 -m unittest discover -s backend/tests -v
 ```
 
-## Why no third-party dependencies
-
-This prototype was built in a sandboxed environment with package
-installation blocked (pip/apt egress was refused end-to-end while building
-this). Rather than write code that could not be tested, everything was
-implemented in the Python standard library (a hand-rolled Jaro-Winkler,
-Soundex, haversine distance, and union-find) and vanilla JS (no CDN
-libraries, no build step). This turned out to be a reasonable place to land
-for a POC anyway: `git clone && python3 server.py` with no install step at
-all. If you take this further, the natural real upgrade path is:
-
-- `resolution.py` stays almost unchanged; swap the hand-rolled string
-  metrics for `jellyfish` (Jaro-Winkler/Damerau-Levenshtein/Double
-  Metaphone) and character-level learned edit distances.
-- `server.py` becomes a thin FastAPI app exposing the same 3 routes
-  (`GET /api/dataset`, `POST /api/resolve`, `GET /api/health`) — the
-  handler bodies barely change.
-- Union-find clustering is replaced with the brief's temporal community
-  detection (Louvain/Infomap on the weighted observation graph) once cluster
-  sizes and pairwise ambiguity make greedy agglomeration too crude — see the
-  scoping notes below.
-
-## What changed from the draft, and why
-
-See the accompanying write-up (delivered alongside this code, and saved to
-the project) for the full review. In short, for this first POC:
-
-- **HMM / Multi-Hypothesis Tracking is deferred.** It's the right long-run
-  answer for resolving long-term drift the pairwise scores can't settle on
-  their own, but it needs a working baseline and labeled data to tune
-  transition probabilities against first. Constrained greedy clustering is
-  the honest MVP substitute and is what's implemented here.
-- **Temporal Louvain/Infomap is deferred** for the same reason — community
-  detection tuning needs a corpus large enough for its parameters to mean
-  something; at POC scale (dozens to low hundreds of entities) it would
-  mostly reproduce what union-find already gives you, at much higher
-  implementation cost.
-- **LSH blocking is real but simplified**: bucket-based (soundex + geohash-
-  like birth-year/household/token keys) rather than true locality-sensitive
-  hashing over continuous embeddings. At POC scale it doesn't need to be
-  more than that; at production scale (millions of observations) it would.
-- **The "learned edit distance via character-level Transformers" line from
-  the draft is out of scope for a POC** — Jaro-Winkler + phonetic + a
-  nickname table is the appropriate starting point; a learned model needs
-  labeled transition pairs this project doesn't have yet.
-- **DOB mismatch is treated as a near-hard constraint**, not merely a scored
-  feature, because it isn't actually a "vote" in the same sense mutable
-  attributes are — see the multiplicative-crush note above. This was found
-  by testing: the original purely-additive scoring let the sibling/spouse
-  confounder over-merge because shared household + same surname could
-  out-vote a *known, confirmed* DOB mismatch. That's a correctness bug in a
-  purely-additive design, not a modeling nuance.
+### Test Coverage Highlights:
+- `test_jaro_similarity_identical_and_empty`: Empty and identical string edge cases.
+- `test_jaro_winkler_prefix`: Prefix scaling and transposition handling.
+- `test_soundex`: US Census standard phonetic codes and vowel separators.
+- `test_name_similarity_nicknames_and_phonetics`: Nickname table equivalences.
+- `test_haversine_known_distance`: Great-circle distance calculations.
+- `test_kinematic_check_anti_reflexive`: Same-day multi-city impossible travel detection.
+- `test_kinematic_check_consecutive_days`: Legitimate consecutive-day domestic travel validation.
+- `test_spatiotemporal_kernel_missing_coordinates`: Unbiased baseline handling for missing locations.
+- `test_transitive_dob_cannot_link`: Enforcing cannot-link constraints across intermediate bridging records.
+- `test_benchmark_metrics_reach_100_percent_f1`: Verifying 100% Precision, Recall, and $F_1$ across the benchmark dataset.
