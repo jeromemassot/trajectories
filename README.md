@@ -134,7 +134,7 @@ $$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.
 
 Near-immutable biological and physical laws are **disqualifying**, not merely additive votes:
 - If a confirmed DOB mismatch exists, the probability is crushed multiplicatively:
-  $$P \leftarrow P \times \exp(-w_{\text{dob\_conflict\_penalty}})$$
+  $$P \leftarrow P \times \exp(-w_{\text{dob-conflict}})$$
 - If the required velocity between two observations exceeds physical limits ($v > 950\text{ km/h}$, commercial jet speed), the probability is smoothly crushed proportional to the velocity overshoot.
 
 ---
