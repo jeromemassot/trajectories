@@ -537,11 +537,11 @@ def make_population():
             if phone_change_idx is not None and idx == phone_change_idx:
                 p.change_phone(d, p.residence_at(d)[3])
 
-            cur_addr, cur_lat, cur_lon, cur_city = p.residence_at(d)
-            if random.random() < 0.20:
-                obs_addr, obs_lat, obs_lon = random.choice(CITY_ADDRESSES[cur_city])
-            else:
-                obs_addr, obs_lat, obs_lon = cur_addr, cur_lat, cur_lon
+            _, _, _, cur_city = p.residence_at(d)
+            # Cycle through distinct authentic addresses in the city so every observation
+            # represents a distinct location/sighting (home, work, retail, transit, cafe)
+            city_addrs = CITY_ADDRESSES[cur_city]
+            obs_addr, obs_lat, obs_lon = city_addrs[idx % len(city_addrs)]
 
             drop_dob = random.random() < 0.12
             drop_addr = random.random() < 0.10
@@ -572,15 +572,12 @@ def make_population():
             people.append(p)
             siblings.append(p)
 
+        city_addrs = CITY_ADDRESSES[home_city]
         for p in siblings:
             n_obs = random.randint(6, 10)
             dts = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
-            for d in dts:
-                res_addr, res_lat, res_lon, cur_city = p.residence_at(d)
-                if random.random() < 0.20:
-                    obs_addr, obs_lat, obs_lon = random.choice(CITY_ADDRESSES[cur_city])
-                else:
-                    obs_addr, obs_lat, obs_lon = res_addr, res_lat, res_lon
+            for s_idx, d in enumerate(dts):
+                obs_addr, obs_lat, obs_lon = city_addrs[s_idx % len(city_addrs)]
                 new_obs(p.entity_id, p.first, p.last, p.dob, d, home_city,
                         obs_addr, obs_lat, obs_lon,
                         household_id, None, p.persistent_token,
@@ -588,8 +585,8 @@ def make_population():
                         name_noise=True)
 
         common_date = rand_date_between(START_DATE, END_DATE)
+        res_addr, res_lat, res_lon, _ = siblings[0].residence_at(common_date)
         for p in siblings:
-            res_addr, res_lat, res_lon, _ = p.residence_at(common_date)
             new_obs(p.entity_id, p.first, p.last, p.dob, common_date, home_city,
                     res_addr, res_lat, res_lon, household_id, None, p.persistent_token,
                     emails=p.emails_at(common_date), phones=p.active_phones_at(common_date))
@@ -613,12 +610,9 @@ def make_population():
         for p, cur_c in [(pA, cityA), (pB, cityB)]:
             n_obs = random.randint(5, 9)
             dts = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
-            for d in dts:
-                res_addr, res_lat, res_lon, _ = p.residence_at(d)
-                if random.random() < 0.20:
-                    obs_addr, obs_lat, obs_lon = random.choice(CITY_ADDRESSES[cur_c])
-                else:
-                    obs_addr, obs_lat, obs_lon = res_addr, res_lat, res_lon
+            city_addrs = CITY_ADDRESSES[cur_c]
+            for n_idx, d in enumerate(dts):
+                obs_addr, obs_lat, obs_lon = city_addrs[n_idx % len(city_addrs)]
                 new_obs(p.entity_id, p.first, p.last, p.dob, d, cur_c,
                         obs_addr, obs_lat, obs_lon,
                         p.household_id, None, p.persistent_token,
@@ -627,12 +621,12 @@ def make_population():
 
         # Anti-reflexive kinematic clash: observed on exact same day in distant cities
         clash_date = rand_date_between(START_DATE, END_DATE)
-        addrA, latA, lonA, _ = pA.residence_at(clash_date)
+        addrA, latA, lonA = CITY_ADDRESSES[cityA][0]
         new_obs(pA.entity_id, first, last, dobA, clash_date, cityA,
                 addrA, latA, lonA,
                 pA.household_id, None, pA.persistent_token,
                 emails=pA.emails_at(clash_date), phones=pA.active_phones_at(clash_date))
-        addrB, latB, lonB, _ = pB.residence_at(clash_date)
+        addrB, latB, lonB = CITY_ADDRESSES[cityB][0]
         new_obs(pB.entity_id, first, last, dobB, clash_date, cityB,
                 addrB, latB, lonB,
                 pB.household_id, None, pB.persistent_token,
@@ -648,8 +642,9 @@ def make_population():
         (date(2018, 5, 1), [rand_phone("Boston, MA")]),
     ]
     people.append(p_realloc_early)
-    for d in [date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]:
-        addr, lat, lon, _ = p_realloc_early.residence_at(d)
+    boston_addrs = CITY_ADDRESSES["Boston, MA"]
+    for m_idx, d in enumerate([date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]):
+        addr, lat, lon = boston_addrs[m_idx % len(boston_addrs)]
         new_obs(p_realloc_early.entity_id, "Marcus", "Vance", p_realloc_early.dob, d,
                 "Boston, MA", addr, lat, lon, p_realloc_early.household_id, None,
                 p_realloc_early.persistent_token, emails=p_realloc_early.emails_at(d),
@@ -658,8 +653,9 @@ def make_population():
     p_realloc_late = Person("Clara", "Oswald", "F", date(1994, 11, 23), "Denver, CO", carrier=carrier)
     p_realloc_late.phone_timeline = [(date(2021, 1, 1), [reallocated_number])]
     people.append(p_realloc_late)
-    for d in [date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]:
-        addr, lat, lon, _ = p_realloc_late.residence_at(d)
+    denver_addrs = CITY_ADDRESSES["Denver, CO"]
+    for c_idx, d in enumerate([date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]):
+        addr, lat, lon = denver_addrs[c_idx % len(denver_addrs)]
         new_obs(p_realloc_late.entity_id, "Clara", "Oswald", p_realloc_late.dob, d,
                 "Denver, CO", addr, lat, lon, p_realloc_late.household_id, None,
                 p_realloc_late.persistent_token, emails=p_realloc_late.emails_at(d),
