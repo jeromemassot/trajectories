@@ -733,9 +733,70 @@
       }
     }
 
-    // 6. Smooth pan map if requested
+    // 6. Intelligent adaptive camera framing (re-evaluated at each time step)
     if (centerMap && state.map && activeObs) {
-      state.map.panTo([activeObs.lat, activeObs.lon], { animate: true, duration: 0.5 });
+      updateMapCameraForStep(stepIdx);
+    }
+  }
+
+  const RELOCATION_THRESHOLD_KM = 80;
+
+  function updateMapCameraForStep(stepIdx) {
+    if (!state.map) return;
+    const obs = timelineState.obsList;
+    if (!obs || obs.length === 0 || stepIdx < 0 || stepIdx >= obs.length) return;
+
+    const activeObs = obs[stepIdx];
+    if (activeObs.lat == null || activeObs.lon == null) return;
+
+    // Step 0: Initial observation
+    if (stepIdx === 0) {
+      state.map.setView([activeObs.lat, activeObs.lon], 13, { animate: true, duration: 0.5 });
+      return;
+    }
+
+    // Determine the current local cluster start index (most recent relocation > RELOCATION_THRESHOLD_KM)
+    let clusterStartIdx = 0;
+    for (let i = 1; i <= stepIdx; i++) {
+      const prev = obs[i - 1];
+      const curr = obs[i];
+      if (prev.lat != null && prev.lon != null && curr.lat != null && curr.lon != null) {
+        const d = haversineKm(prev.lat, prev.lon, curr.lat, curr.lon);
+        if (d != null && d > RELOCATION_THRESHOLD_KM) {
+          clusterStartIdx = i;
+        }
+      }
+    }
+
+    // Case 1: The current step is itself a large relocation from the previous observation
+    if (stepIdx === clusterStartIdx) {
+      // If relocation distance is too large: show current location with the same zoom level as previous time step
+      const previousZoom = state.map.getZoom() || 13;
+      state.map.setView([activeObs.lat, activeObs.lon], previousZoom, {
+        animate: true,
+        duration: 0.6,
+      });
+      return;
+    }
+
+    // Case 2: Local movement within the same area
+    // Re-evaluate zoom to appropriately frame all past observations in the current local journey
+    const localPastObs = obs.slice(clusterStartIdx, stepIdx + 1).filter((o) => o.lat != null && o.lon != null);
+    if (localPastObs.length <= 1) {
+      const previousZoom = state.map.getZoom() || 13;
+      state.map.setView([activeObs.lat, activeObs.lon], previousZoom, {
+        animate: true,
+        duration: 0.5,
+      });
+    } else {
+      const latLngs = localPastObs.map((o) => [o.lat, o.lon]);
+      const bounds = L.latLngBounds(latLngs);
+      state.map.fitBounds(bounds, {
+        padding: [60, 60],
+        maxZoom: 14,
+        animate: true,
+        duration: 0.5,
+      });
     }
   }
 
