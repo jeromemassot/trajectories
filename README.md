@@ -35,9 +35,10 @@ Then open **http://localhost:8000/** in a browser.
   real system obviously would not have it, which is exactly why the metrics
   panel exists: it's the stand-in for the labeled evaluation set you'd need
   in production.
-- **Trajectory map** — a simple equirectangular scatter/path plot (no map
-  tiles, no internet dependency) showing one entity's reconstructed
-  chronological path across observed locations.
+- **Trajectory map** — a dynamic interactive map (Leaflet with CartoDB Voyager
+  and Dark Matter tiles, automatically adapting to light/dark display modes)
+  showing an entity's reconstructed chronological path across observed locations,
+  complete with pan/zoom, interactive waypoints, and observation popups.
 - **Candidate pairs** — every pair blocking produced, with its full feature
   breakdown (name/DOB/spatio-temporal/co-occurrence/velocity) and whether it
   was linked, rejected, or hard-blocked. This is the audit trail — for a

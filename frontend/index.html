@@ -12,6 +12,8 @@
     }
   })();
 </script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -90,12 +92,18 @@
   </section>
 
   <section class="panel tab-panel" id="tab-map" hidden>
-    <p class="hint">Pick a resolved entity to draw its reconstructed trajectory
-      (chronological path across observed locations). Point color intensity encodes
-      recency; hover a point for details.</p>
-    <select id="mapEntitySelect"></select>
-    <svg id="mapSvg" viewBox="0 0 900 480" role="img" aria-label="Trajectory map"></svg>
-    <div id="mapTooltip" class="map-tooltip" hidden></div>
+    <p class="hint">Pick a resolved entity to explore its reconstructed trajectory
+      (chronological path across observed locations) on a dynamic interactive map.
+      Waypoint color intensity encodes recency; click any point to view observation details.</p>
+    <div class="map-controls-bar">
+      <label class="map-select-label">
+        <span>Select entity:</span>
+        <select id="mapEntitySelect"></select>
+      </label>
+      <button type="button" id="mapFitBtn" class="map-btn">Fit route</button>
+      <span id="mapEntityInfo" class="map-entity-info"></span>
+    </div>
+    <div id="mapContainer"></div>
   </section>
 
   <section class="panel tab-panel" id="tab-pairs" hidden>

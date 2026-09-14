@@ -14,6 +14,11 @@
     weights: { ...DEFAULT_WEIGHTS },
     threshold: DEFAULT_THRESHOLD,
     showTruth: true,
+    map: null,
+    tileLayer: null,
+    currentTileTheme: null,
+    trajectoryLayerGroup: null,
+    backgroundLayerGroup: null,
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -35,7 +40,6 @@
     const ds = await fetchJSON("/api/dataset");
     state.observations = ds.observations;
     state.observations.forEach((o) => state.obsById.set(o.observation_id, o));
-    updateBounds();
     renderObservationsTable();
 
     await runResolve();
@@ -52,6 +56,37 @@
     });
   }
 
+  function getEffectiveTheme() {
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark") return "dark";
+    if (attr === "light") return "light";
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function updateMapTiles() {
+    if (!state.map || !window.L) return;
+    const theme = getEffectiveTheme();
+    if (state.currentTileTheme === theme && state.tileLayer) return;
+
+    if (state.tileLayer) {
+      state.map.removeLayer(state.tileLayer);
+    }
+
+    const tileUrl = theme === "dark"
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+
+    const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+
+    state.tileLayer = L.tileLayer(tileUrl, {
+      attribution: attribution,
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(state.map);
+
+    state.currentTileTheme = theme;
+  }
+
   function setTheme(mode) {
     if (mode === "light") {
       document.documentElement.setAttribute("data-theme", "light");
@@ -64,6 +99,16 @@
     localStorage.setItem("trajectories_theme", mode);
     document.querySelectorAll(".theme-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.themeVal === mode);
+    });
+    updateMapTiles();
+  }
+
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      const saved = localStorage.getItem("trajectories_theme") || "system";
+      if (saved === "system") {
+        updateMapTiles();
+      }
     });
   }
 
@@ -130,6 +175,12 @@
         tab.classList.add("active");
         document.querySelectorAll(".tab-panel").forEach((p) => (p.hidden = true));
         $(`#tab-${tab.dataset.tab}`).hidden = false;
+        if (tab.dataset.tab === "map" && state.map) {
+          setTimeout(() => {
+            state.map.invalidateSize();
+            fitCurrentTrajectory();
+          }, 150);
+        }
       });
     });
   }
@@ -284,30 +335,41 @@
   }
 
   // ----------------------------------------------------------------- map --
-  const SVG_W = 900, SVG_H = 480, PAD = 20;
-  let bounds = { lonMin: -125, lonMax: -66, latMin: 24, latMax: 49 };
+  let currentEntityLatLngs = [];
 
-  function updateBounds() {
-    const lats = state.observations.filter((o) => o.lat != null).map((o) => o.lat);
-    const lons = state.observations.filter((o) => o.lon != null).map((o) => o.lon);
-    if (lats.length && lons.length) {
-      const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-      const minLon = Math.min(...lons), maxLon = Math.max(...lons);
-      const padLat = Math.max((maxLat - minLat) * 0.08, 1.0);
-      const padLon = Math.max((maxLon - minLon) * 0.08, 1.0);
-      bounds = {
-        latMin: minLat - padLat,
-        latMax: maxLat + padLat,
-        lonMin: minLon - padLon,
-        lonMax: maxLon + padLon,
-      };
+  function initLeafletMap() {
+    if (!window.L || state.map) return;
+    const mapEl = $("#mapContainer");
+    if (!mapEl) return;
+
+    state.map = L.map("mapContainer", {
+      center: [39.8283, -98.5795], // US Geographic center
+      zoom: 4,
+      minZoom: 3,
+      maxZoom: 18,
+    });
+
+    updateMapTiles();
+
+    state.backgroundLayerGroup = L.layerGroup().addTo(state.map);
+    state.trajectoryLayerGroup = L.layerGroup().addTo(state.map);
+
+    const fitBtn = $("#mapFitBtn");
+    if (fitBtn) {
+      fitBtn.addEventListener("click", fitCurrentTrajectory);
     }
   }
 
-  function project(lat, lon) {
-    const x = PAD + ((lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * (SVG_W - 2 * PAD);
-    const y = PAD + (1 - (lat - bounds.latMin) / (bounds.latMax - bounds.latMin)) * (SVG_H - 2 * PAD);
-    return [x, y];
+  function fitCurrentTrajectory() {
+    if (!state.map || !currentEntityLatLngs.length) return;
+    if (currentEntityLatLngs.length === 1) {
+      state.map.setView(currentEntityLatLngs[0], 9);
+    } else {
+      state.map.fitBounds(L.latLngBounds(currentEntityLatLngs), {
+        padding: [45, 45],
+        maxZoom: 11,
+      });
+    }
   }
 
   function populateMapSelect() {
@@ -326,81 +388,104 @@
   }
 
   function renderMap() {
-    const svg = $("#mapSvg");
-    svg.innerHTML = "";
+    if (!window.L) return;
+    if (!state.map) {
+      initLeafletMap();
+    }
+    if (!state.map) return;
+
+    state.backgroundLayerGroup.clearLayers();
+    state.trajectoryLayerGroup.clearLayers();
+    currentEntityLatLngs = [];
+
+    // 1. Draw subtle background observation dots across the entire dataset
+    state.observations.forEach((o) => {
+      if (o.lat == null || o.lon == null) return;
+      const marker = L.circleMarker([o.lat, o.lon], {
+        radius: 3.5,
+        fillColor: "#888888",
+        fillOpacity: 0.25,
+        stroke: false,
+      });
+      marker.bindTooltip(`<b>${o.first_name} ${o.last_name}</b><br>${o.city} · ${o.timestamp}`, {
+        sticky: true,
+      });
+      state.backgroundLayerGroup.addLayer(marker);
+    });
+
     const clusterId = $("#mapEntitySelect").value;
     const entity = state.result.entities.find((e) => e.cluster_id === clusterId);
     if (!entity) return;
 
-    // background: faint dots for every observation with known coordinates
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    bg.setAttribute("opacity", "0.15");
-    state.observations.forEach((o) => {
-      if (o.lat == null) return;
-      const [x, y] = project(o.lat, o.lon);
-      bg.appendChild(circle(x, y, 2, "currentColor"));
-    });
-    svg.appendChild(bg);
-
     const obs = entity.observation_ids
       .map((id) => state.obsById.get(id))
-      .filter((o) => o.lat != null)
+      .filter((o) => o.lat != null && o.lon != null)
       .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    const pts = obs.map((o) => project(o.lat, o.lon).join(",")).join(" ");
-    path.setAttribute("points", pts);
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "#3b5bdb");
-    path.setAttribute("stroke-width", "2");
-    path.setAttribute("stroke-dasharray", "5,4");
-    svg.appendChild(path);
+    const infoEl = $("#mapEntityInfo");
+    if (infoEl) {
+      infoEl.textContent = `${entity.cluster_id} · ${obs.length} mapped points · ${entity.cities_seen.join(" → ")}`;
+    }
 
+    if (obs.length === 0) return;
+
+    currentEntityLatLngs = obs.map((o) => [o.lat, o.lon]);
+
+    // 2. Chronological trajectory polyline connecting observations
+    if (obs.length > 1) {
+      const polyline = L.polyline(currentEntityLatLngs, {
+        color: "#3b5bdb",
+        weight: 3.5,
+        opacity: 0.85,
+        dashArray: "6, 6",
+        lineCap: "round",
+      });
+      state.trajectoryLayerGroup.addLayer(polyline);
+    }
+
+    // 3. Chronologically colored waypoint markers with rich popups
     obs.forEach((o, idx) => {
-      const [x, y] = project(o.lat, o.lon);
       const t = obs.length > 1 ? idx / (obs.length - 1) : 1;
-      const color = `rgb(${Math.round(59 + t * 100)}, ${Math.round(91 - t * 40)}, ${Math.round(219 - t * 100)})`;
-      const c = circle(x, y, 6, color);
-      c.style.cursor = "pointer";
-      c.addEventListener("mousemove", (ev) => showTooltip(ev, o));
-      c.addEventListener("mouseleave", hideTooltip);
-      svg.appendChild(c);
+      const r = Math.round(59 + t * 165);
+      const g = Math.round(91 - t * 42);
+      const b = Math.round(219 - t * 170);
+      const color = `rgb(${r}, ${g}, ${b})`;
+
+      const marker = L.circleMarker([o.lat, o.lon], {
+        radius: 7,
+        fillColor: color,
+        fillOpacity: 0.95,
+        color: "#ffffff",
+        weight: 2,
+      });
+
+      const popupHtml = `
+        <div class="map-popup-body">
+          <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--text);">${o.first_name} ${o.last_name}</div>
+          <div style="font-size:0.8rem;color:var(--muted);margin-bottom:6px;">Waypoint ${idx + 1} of ${obs.length}</div>
+          <div style="display:grid;gap:2px;font-size:0.8rem;">
+            <div><b>Date:</b> ${o.timestamp}</div>
+            <div><b>Location:</b> ${o.city}</div>
+            ${o.address ? `<div><b>Address:</b> ${o.address}</div>` : ""}
+            ${o.dob ? `<div><b>DOB:</b> ${o.dob}</div>` : ""}
+            ${o.household_id ? `<div><b>Household:</b> <code>${o.household_id}</code></div>` : ""}
+            ${o.employer_id ? `<div><b>Employer:</b> <code>${o.employer_id}</code></div>` : ""}
+            ${state.showTruth ? `<div style="margin-top:4px;border-top:1px dashed var(--border);padding-top:4px;color:var(--muted);"><b>Truth ID:</b> <code>${o.entity_id_truth}</code></div>` : ""}
+          </div>
+        </div>
+      `;
+
+      marker.bindPopup(popupHtml);
+      marker.bindTooltip(`<b>#${idx + 1}</b> ${o.timestamp} — ${o.city}`, {
+        direction: "top",
+        offset: [0, -6],
+      });
+
+      state.trajectoryLayerGroup.addLayer(marker);
     });
 
-    // city labels for context
-    const seenCities = new Set();
-    obs.forEach((o) => {
-      if (seenCities.has(o.city)) return;
-      seenCities.add(o.city);
-      const [x, y] = project(o.lat, o.lon);
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", x + 8);
-      label.setAttribute("y", y - 8);
-      label.setAttribute("font-size", "10");
-      label.setAttribute("fill", "currentColor");
-      label.textContent = o.city;
-      svg.appendChild(label);
-    });
+    fitCurrentTrajectory();
   }
-
-  function circle(x, y, r, fill) {
-    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r);
-    c.setAttribute("fill", fill);
-    c.setAttribute("stroke", "white");
-    c.setAttribute("stroke-width", "1");
-    return c;
-  }
-
-  function showTooltip(ev, o) {
-    const tip = $("#mapTooltip");
-    tip.hidden = false;
-    tip.style.left = ev.clientX + 14 + "px";
-    tip.style.top = ev.clientY + 10 + "px";
-    tip.innerHTML = `<b>${o.first_name} ${o.last_name}</b><br>${o.timestamp} — ${o.city}` +
-      (state.showTruth ? `<br>truth: ${o.entity_id_truth}` : "");
-  }
-  function hideTooltip() { $("#mapTooltip").hidden = true; }
 
   document.addEventListener("DOMContentLoaded", init);
 })();
