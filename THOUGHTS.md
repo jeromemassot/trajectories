@@ -248,6 +248,29 @@ In real-world data systems, contact identifiers exhibit fundamentally asymmetric
 
 ---
 
+### Finding 7: Address-Coordinate Discrepancy (Decoupling of Synthetic Addresses & Geo-Coordinates)
+
+#### Issue Description
+When inspecting waypoints on the dynamic Leaflet map, pinned locations frequently do not match their displayed text address. For example, in Miami, an observation with address `"6432 Sunset Blvd, Miami, FL"` or `"8181 Maple Dr, Miami, FL"` is pinned directly inside the Brickell downtown corridor or even in the open water of Biscayne Bay / Miami River.
+
+#### Root Causes in the Application
+1. **Complete Decoupling of Address and Coordinates in Generator (`backend/data_gen.py`)**:
+   - The address string is constructed at random via `rand_address(city_name)`, picking a generic street name (`Main St`, `Oak Ave`, `Elm St`, `Sunset Blvd`) and a random number ($1-9999$).
+   - The geographical coordinates are generated independently by taking a single static city centroid (e.g., Miami `(25.7617, -80.1918)`) and applying a blind mathematical jitter of $\pm 0.8\text{ km}$ via `jitter_latlon()`.
+   - There is **no forward geocoding** (address $\to$ lat/lon) and **no reverse geocoding** (lat/lon $\to$ address).
+2. **Topological & Water Blindness (No Land/Road Mask)**:
+   - For coastal or riverine cities (Miami, Boston, San Francisco, Seattle, New York), city center coordinates lie adjacent to water. Uniform random jitter creates coordinates that fall squarely in Biscayne Bay or the Miami River, where no road or building exists.
+3. **Street Grid Disconnect**:
+   - The generic street names do not match the actual street names of the downtown core shown on the Leaflet OpenStreetMap tiles (`Brickell Ave`, `SE 13th St`, `South Miami Ave`), creating an obvious visual contradiction.
+
+#### Real-World Implications in Production Systems
+In real-world intelligence and master data systems, this reflects genuine operational challenges:
+- **Geocoding Granularity Fallback**: Real geocoders (Google Maps, Nominatim, Pelias) fall back from rooftop/parcel level to interpolated street centerlines, ZIP centroids, or city hall centroids when addresses contain typos or unregistered unit numbers.
+- **GPS Triangulation Drift**: Cellular or Wi-Fi triangulation often exhibits 50–500m drift, causing coordinates to land across rivers or in adjacent blocks.
+- **Data Fusion Asynchrony**: An observation may capture an individual's registered home address alongside mobile GPS telemetry captured miles away during transit.
+
+---
+
 ## 4. Code Quality & Engineering Hygiene
 
 | Dimension | Rating | Assessment |

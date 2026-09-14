@@ -5,7 +5,7 @@
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
 ![Leaflet](https://img.shields.io/badge/Leaflet.js-1.9.4-199900?style=for-the-badge&logo=leaflet&logoColor=white)
-![CartoDB](https://img.shields.io/badge/CartoDB%20%2F%20OSM-Maps-0080FF?style=for-the-badge&logo=openstreetmap&logoColor=white)
+![OpenStreetMap](https://img.shields.io/badge/OpenStreetMap-Tiles-7EBC6F?style=for-the-badge&logo=openstreetmap&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/Dependencies-Zero%20External%20PyPI-success?style=for-the-badge)
 
 **Trajectories** is an explainable, zero-dependency engine and interactive web application designed to solve the problem of **temporal entity resolution** (tracking and linking records belonging to the same individual over time).
@@ -224,7 +224,8 @@ The application features a single-page web interface served directly by the Pyth
 - Instant display of Total Observations, True Entities, Predicted Clusters, Precision, Recall, and $F_1$ Score.
 
 ### 3. Dynamic Interactive Trajectory Map (Leaflet.js)
-- **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with CartoDB Voyager (light) and Dark Matter (dark) tiles.
+- **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with authentic OpenStreetMap tiles (free of external API keys or watermarks) and adaptive dark-mode filtering.
+- **Accurate Address-to-Coordinate Geolocation**: Every observation features verified, genuine street addresses whose latitude and longitude coordinates point strictly to terrestrial locations (eliminating water landing pins in Biscayne Bay, rivers, or harbors).
 - **Timeline Playback Engine**: Complete playback controller (`Play`, `Pause`, `Prev Step`, `Next Step`, `Replay`, `Scrubber Slider`, and `Speed Multiplier 0.5x–4x`) allowing users to watch an individual's journey unfold chronologically across time and space.
 - **Active Waypoint Halo & Sequential Reveal**: The timeline dynamically reveals waypoints and trajectory segments step-by-step, highlighting the current observation with an animated pulsing radar halo.
 - **Segment Link Explainability Tooltips**: Hovering over any trajectory connecting line displays an interactive, sticky tooltip detailing the exact entity resolution probability score ($P(\text{Match})$), linkage verdict, and multi-attribute feature breakdown (name, DOB, email, phone with reallocation decay, transit velocity, spatial co-occurrence).
@@ -236,7 +237,7 @@ The application features a single-page web interface served directly by the Pyth
 
 ### 4. Display Mode Switcher (System / Light / Dark)
 - Segmented toggle (`💻 System`, `☀️ Light`, `🌙 Dark`) in the top bar.
-- Automatically swaps interface colors and **map tile themes** (CartoDB Voyager $\leftrightarrow$ CartoDB Dark Matter) in real-time.
+- Automatically swaps interface colors and **map tile themes** in real-time.
 - Persists user preferences in `localStorage`.
 
 ### 5. Candidate Pairs Audit Trail
