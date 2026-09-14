@@ -2,7 +2,8 @@
   "use strict";
 
   const DEFAULT_WEIGHTS = {
-    name: 3.0, dob: 1.5, spatiotemporal: 1.2, cooccurrence: 2.5,
+    name: 3.0, dob: 1.5, email: 2.0, phone: 1.8,
+    spatiotemporal: 1.2, cooccurrence: 2.2,
     kinematic_penalty: 4.0, dob_conflict_penalty: 5.0,
   };
   const DEFAULT_THRESHOLD = 0.65;
@@ -251,6 +252,8 @@
       addRow(dl, "Observations", e.size);
       addRow(dl, "Names seen", e.names_seen.join(" / "));
       addRow(dl, "Cities", e.cities_seen.join(", "));
+      if (e.emails_seen && e.emails_seen.length) addRow(dl, "Emails", e.emails_seen.join(", "));
+      if (e.phones_seen && e.phones_seen.length) addRow(dl, "Phones", e.phones_seen.join(", "));
       addRow(dl, "Date span", `${e.date_span[0]} → ${e.date_span[1]}`);
       if (state.showTruth) addRow(dl, "Ground truth", e.ground_truth_entities.join(", "));
       card.appendChild(dl);
@@ -294,6 +297,8 @@
         p.observation_id_i, p.observation_id_j,
         f.first_name_sim.toFixed(2), f.last_name_sim.toFixed(2),
         f.dob_conflict ? "conflict" : f.dob_sim.toFixed(2),
+        f.email_sim !== undefined ? f.email_sim.toFixed(2) : "–",
+        f.phone_sim !== undefined ? f.phone_sim.toFixed(2) : "–",
         f.spatiotemporal_kernel.toFixed(2), f.cooccurrence.toFixed(2),
         f.velocity_kmh === null ? "–" : f.velocity_kmh,
         status,
@@ -318,9 +323,12 @@
       .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
       .forEach((o) => {
         const tr = document.createElement("tr");
+        const emailsStr = (o.emails && o.emails.length) ? o.emails.join(", ") : "–";
+        const phonesStr = (o.phones && o.phones.length) ? o.phones.join(", ") : "–";
         const cells = [
           o.observation_id, o.timestamp, o.first_name, o.last_name,
-          o.dob || "–", o.city, o.household_id || "–", o.employer_id || "–",
+          o.dob || "–", o.city, emailsStr, phonesStr,
+          o.household_id || "–", o.employer_id || "–",
           o.persistent_token ? o.persistent_token.slice(0, 8) : "–",
           state.showTruth ? o.entity_id_truth : "hidden",
         ];

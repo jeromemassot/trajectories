@@ -226,6 +226,28 @@ for i, j in itertools.combinations(range(n), 2):
 
 ---
 
+### Finding 6: Email Accumulation vs. Carrier Phone Reallocation: Asymmetric Lifecycle Modeling
+
+In real-world data systems, contact identifiers exhibit fundamentally asymmetric temporal dynamics:
+
+1. **Email Addresses are Monotonically Accumulative**:
+   - People rarely relinquish personal email addresses; they accumulate them over time ($E_{t_1} \subseteq E_{t_2}$).
+   - A person may begin with a personal email (`john.smith@gmail.com`), subsequently add an employer address (`jsmith@corp.com`), and later adopt an academic or secondary address.
+   - Therefore, a non-empty intersection ($E_1 \cap E_2 \neq \emptyset$) between two observations is an exceptionally strong positive identity anchor ($S_{\text{email}} = 1.0$), while disjoint email sets provide only mild negative drag ($0.2$) rather than a disqualifying penalty, because legitimate individuals often use different email aliases in different contexts.
+
+2. **Phone Numbers are Transient and Reallocated (Carrier Churn)**:
+   - Unlike email addresses, mobile and landline numbers are finite resources managed by telecom carriers. When an individual relocates, changes providers, or cancels a line, the number is quarantined (typically 90–365 days) and subsequently **reallocated to an unrelated individual**.
+   - Furthermore, in most case scenarios, an individual possesses **only one active phone number at time $t$** (the latest one added to their collection). However, a realistic subset of individuals (~20%) maintain **multiple active phone numbers simultaneously** (e.g. personal mobile + dedicated corporate phone).
+   - If an algorithm treats shared phone numbers as eternal, time-invariant identity links, it will create catastrophic false merges between consecutive holders of the same reallocated number.
+   - **Solution**: The pairwise phone agreement must be modeled with an exponential elapsed-time decay:
+     $$S_{\text{phone}}(\Delta t) = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{\tau_{\text{phone}}}\right)$$
+     where $\tau_{\text{phone}} \approx 730\text{ days}$ (2 years).
+     - Contemporaneous sightings ($\Delta t \approx 0$): $S_{\text{phone}} = 1.0$.
+     - Temporal gap across carrier churn ($\Delta t \gg 2\text{ years}$): $S_{\text{phone}} \to 0.5$ (neutralized).
+     - Furthermore, immutable biological cannot-link constraints (confirmed DOB conflicts) guarantee that two different individuals sharing a reallocated number across years are never bridged into the same cluster.
+
+---
+
 ## 4. Code Quality & Engineering Hygiene
 
 | Dimension | Rating | Assessment |

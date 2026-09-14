@@ -3,6 +3,7 @@ Unit and integration tests for Trajectories resolution engine.
 """
 
 import json
+import math
 import unittest
 from pathlib import Path
 
@@ -22,6 +23,9 @@ from resolution import (
     kinematic_check,
     spatiotemporal_kernel,
     dob_score,
+    email_score,
+    phone_score,
+    blocking_keys,
     cooccurrence_score,
     UnionFind,
     cluster_pairs,
@@ -158,6 +162,74 @@ class TestClusteringAndConstraints(unittest.TestCase):
         self.assertNotEqual(cluster_map[0], cluster_map[2])
 
 
+class TestEmailAndPhoneSimilarity(unittest.TestCase):
+    def test_email_score_match(self):
+        # Shared email address yields 1.0 anchor match
+        o1 = {"emails": ["john.smith@gmail.com", "jsmith@corp.com"]}
+        o2 = {"emails": ["john.smith@gmail.com"]}
+        score, status = email_score(o1, o2)
+        self.assertEqual(score, 1.0)
+        self.assertEqual(status, "match")
+
+    def test_email_score_disjoint_and_missing(self):
+        # Disjoint emails
+        o1 = {"emails": ["john.smith@gmail.com"]}
+        o2 = {"emails": ["jane.doe@yahoo.com"]}
+        score, status = email_score(o1, o2)
+        self.assertEqual(score, 0.2)
+        self.assertEqual(status, "disjoint")
+
+        # Missing email on either or both
+        o_empty = {"emails": []}
+        score, status = email_score(o1, o_empty)
+        self.assertEqual(score, 0.5)
+        self.assertEqual(status, "missing")
+
+    def test_phone_score_same_day_vs_temporal_reallocation_decay(self):
+        # Contemporaneous match (same day) -> 1.0
+        o1 = {"phones": ["+1-212-555-0142"], "timestamp": "2020-01-01"}
+        o2 = {"phones": ["+1-212-555-0142"], "timestamp": "2020-01-01"}
+        score, status = phone_score(o1, o2)
+        self.assertEqual(score, 1.0)
+        self.assertEqual(status, "match")
+
+        # Shared phone across 2 years (730 days) -> decayed towards neutral
+        o3 = {"phones": ["+1-212-555-0142"], "timestamp": "2022-01-01"}
+        score3, status3 = phone_score(o1, o3)
+        self.assertAlmostEqual(score3, 0.5 + 0.5 * math.exp(-731 / 730.0), places=2)
+        self.assertEqual(status3, "match")
+        self.assertLess(score3, 0.70)
+
+        # Shared phone across 6 years (carrier reallocation scenario) -> decays close to 0.5
+        o4 = {"phones": ["+1-212-555-0142"], "timestamp": "2026-01-01"}
+        score4, status4 = phone_score(o1, o4)
+        self.assertAlmostEqual(score4, 0.5, delta=0.05)
+
+    def test_phone_score_disjoint_and_missing(self):
+        # Same-day disjoint phones
+        o1 = {"phones": ["+1-212-555-0142"], "timestamp": "2020-01-01"}
+        o2 = {"phones": ["+1-212-555-9999"], "timestamp": "2020-01-01"}
+        score, status = phone_score(o1, o2)
+        self.assertAlmostEqual(score, 0.2, places=2)
+        self.assertEqual(status, "disjoint")
+
+        # Missing phone
+        score_miss, status_miss = phone_score(o1, {"phones": []})
+        self.assertEqual(score_miss, 0.5)
+        self.assertEqual(status_miss, "missing")
+
+    def test_blocking_keys_include_email_and_phone(self):
+        o = {
+            "first_name": "James",
+            "last_name": "Smith",
+            "emails": ["james.smith@gmail.com"],
+            "phones": ["+1-212-555-0142"],
+        }
+        keys = blocking_keys(o)
+        self.assertIn(("email", "james.smith@gmail.com"), keys)
+        self.assertIn(("phone", "+1-212-555-0142"), keys)
+
+
 class TestEndToEndResolution(unittest.TestCase):
     def setUp(self):
         data_path = BACKEND_DIR / "data" / "mock_observations.json"
@@ -174,8 +246,8 @@ class TestEndToEndResolution(unittest.TestCase):
         self.assertEqual(metrics["pairwise_f1"], 1.0)
         self.assertEqual(metrics["pairwise_fp"], 0)
         self.assertEqual(metrics["pairwise_fn"], 0)
-        self.assertEqual(metrics["n_predicted_clusters"], 28)
-        self.assertEqual(metrics["n_true_entities"], 28)
+        self.assertEqual(metrics["n_predicted_clusters"], 30)
+        self.assertEqual(metrics["n_true_entities"], 30)
 
 
 if __name__ == "__main__":

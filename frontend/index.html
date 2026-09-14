@@ -49,10 +49,14 @@
         <input type="range" class="weight" data-key="name" min="0" max="6" step="0.1" value="3.0" /></label>
       <label class="slider-row"><span>DOB match <b id="w_dob_val"></b></span>
         <input type="range" class="weight" data-key="dob" min="0" max="6" step="0.1" value="1.5" /></label>
+      <label class="slider-row"><span>Email match <b id="w_email_val"></b></span>
+        <input type="range" class="weight" data-key="email" min="0" max="6" step="0.1" value="2.0" /></label>
+      <label class="slider-row"><span>Phone match (temporal decay) <b id="w_phone_val"></b></span>
+        <input type="range" class="weight" data-key="phone" min="0" max="6" step="0.1" value="1.8" /></label>
       <label class="slider-row"><span>Spatio-temporal kernel <b id="w_spatiotemporal_val"></b></span>
         <input type="range" class="weight" data-key="spatiotemporal" min="0" max="6" step="0.1" value="1.2" /></label>
       <label class="slider-row"><span>Co-occurrence (household/employer/token) <b id="w_cooccurrence_val"></b></span>
-        <input type="range" class="weight" data-key="cooccurrence" min="0" max="6" step="0.1" value="2.5" /></label>
+        <input type="range" class="weight" data-key="cooccurrence" min="0" max="6" step="0.1" value="2.2" /></label>
       <label class="slider-row"><span>Kinematic-violation penalty <b id="w_kinematic_penalty_val"></b></span>
         <input type="range" class="weight" data-key="kinematic_penalty" min="0" max="10" step="0.2" value="4.0" /></label>
       <label class="slider-row"><span>DOB-conflict penalty <b id="w_dob_conflict_penalty_val"></b></span>
@@ -120,7 +124,7 @@
       <table id="pairsTable">
         <thead>
           <tr><th>Score</th><th>Obs A</th><th>Obs B</th><th>First</th><th>Last</th><th>DOB</th>
-              <th>Spatio-temporal</th><th>Co-occ.</th><th>Velocity (km/h)</th><th>Status</th></tr>
+              <th>Email</th><th>Phone</th><th>Spatio-temporal</th><th>Co-occ.</th><th>Velocity (km/h)</th><th>Status</th></tr>
         </thead>
         <tbody id="pairsBody"></tbody>
       </table>
@@ -135,7 +139,7 @@
       <table id="obsTable">
         <thead>
           <tr><th>ID</th><th>Timestamp</th><th>First</th><th>Last</th><th>DOB</th><th>City</th>
-              <th>Household</th><th>Employer</th><th>Token</th><th class="truth-col">Truth</th></tr>
+              <th>Emails</th><th>Phones</th><th>Household</th><th>Employer</th><th>Token</th><th class="truth-col">Truth</th></tr>
         </thead>
         <tbody id="obsBody"></tbody>
       </table>

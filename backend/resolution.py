@@ -229,6 +229,62 @@ def dob_score(o1, o2):
                        # not merely "a vote against" - handled like kinematic infeasibility
 
 
+TAU_PHONE_DAYS = 730.0  # ~2 years carrier reallocation / churn scale
+
+
+def email_score(o1, o2):
+    """Evaluates email address agreement.
+
+    Emails are accumulative identifiers over an individual's timeline.
+    Returns (score: float in [0, 1], match_type: str).
+    - If either record has no emails: 0.5 (neutral evidence, missing).
+    - If there is at least one shared email: 1.0 (strong identity anchor).
+    - If both have emails but they are completely disjoint: 0.2 (mild negative).
+    """
+    e1 = {e.lower().strip() for e in o1.get("emails", []) if e}
+    e2 = {e.lower().strip() for e in o2.get("emails", []) if e}
+    if not e1 or not e2:
+        return 0.5, "missing"
+    if e1 & e2:
+        return 1.0, "match"
+    return 0.2, "disjoint"
+
+
+def phone_score(o1, o2):
+    """Evaluates phone agreement with temporal decay for carrier reallocation.
+
+    In most cases, only one phone is active at time t (old numbers get reallocated
+    to other individuals after carrier quarantine). However, some individuals maintain
+    multiple active phone numbers simultaneously.
+
+    Returns (score: float in [0, 1], match_type: str).
+    - If either record has no phone numbers: 0.5 (neutral evidence).
+    - If records share an active phone number:
+        Score decays from 1.0 down toward 0.5 as elapsed time Δt grows, reflecting
+        increasing probability that the number was relinquished and reallocated.
+        score = 0.5 + 0.5 * exp(-Δt / TAU_PHONE_DAYS)
+    - If both records have phone numbers but they are disjoint:
+        Contemporaneous disjoint phones (Δt ~ 0) indicate two distinct active lines
+        for single-phone users (mild negative ~0.2), which relaxes toward neutral (0.5)
+        over longer spans as normal phone churn occurs.
+        score = 0.5 - 0.3 * exp(-Δt / TAU_PHONE_DAYS)
+    """
+    p1 = {p.strip() for p in o1.get("phones", []) if p}
+    p2 = {p.strip() for p in o2.get("phones", []) if p}
+    if not p1 or not p2:
+        return 0.5, "missing"
+
+    dt_days = days_between(o1["timestamp"], o2["timestamp"])
+    reallocation_decay = math.exp(-dt_days / TAU_PHONE_DAYS)
+
+    if p1 & p2:
+        score = 0.5 + 0.5 * reallocation_decay
+        return score, "match"
+
+    score = 0.5 - 0.3 * reallocation_decay
+    return score, "disjoint"
+
+
 # ---------------------------------------------------------------------------
 # 4. Blocking
 # ---------------------------------------------------------------------------
@@ -242,6 +298,12 @@ def blocking_keys(o):
         keys.add(("household", o["household_id"]))
     if o.get("dob"):
         keys.add(("dob_soundex", o["dob"][:4], soundex(o["first_name"])))  # birth year + first-name phoneme
+    for em in o.get("emails", []):
+        if em:
+            keys.add(("email", em.lower().strip()))
+    for ph in o.get("phones", []):
+        if ph:
+            keys.add(("phone", ph.strip()))
     return keys
 
 
@@ -269,8 +331,10 @@ def candidate_pairs(observations):
 DEFAULT_WEIGHTS = {
     "name": 3.0,
     "dob": 1.5,
+    "email": 2.0,
+    "phone": 1.8,
     "spatiotemporal": 1.2,
-    "cooccurrence": 2.5,
+    "cooccurrence": 2.2,
     "kinematic_penalty": 4.0,      # multiplies down the combined score, not additive
     "dob_conflict_penalty": 5.0,   # ditto, for a confirmed DOB mismatch
 }
@@ -282,6 +346,8 @@ def extract_pair_features(o1, o2):
     last_sim = name_similarity(o1["last_name"], o2["last_name"])
     name_sim = 0.7 * first_sim + 0.3 * last_sim
     dob_sim, dob_conflict = dob_score(o1, o2)
+    em_sim, _ = email_score(o1, o2)
+    ph_sim, _ = phone_score(o1, o2)
     st_kernel = spatiotemporal_kernel(o1, o2)
     cooc = cooccurrence_score(o1, o2)
     feasible, velocity, hard_block = kinematic_check(o1, o2)
@@ -292,6 +358,8 @@ def extract_pair_features(o1, o2):
         "name_sim": round(name_sim, 4),
         "dob_sim": round(dob_sim, 3),
         "dob_conflict": dob_conflict,
+        "email_sim": round(em_sim, 3),
+        "phone_sim": round(ph_sim, 3),
         "spatiotemporal_kernel": round(st_kernel, 3),
         "cooccurrence": round(cooc, 3),
         "kinematic_feasible": feasible,
@@ -306,6 +374,8 @@ def compute_pair_score(features, weights=None):
     name_sim = features["name_sim"]
     dob_sim = features["dob_sim"]
     dob_conflict = features["dob_conflict"]
+    email_sim = features.get("email_sim", 0.5)
+    phone_sim = features.get("phone_sim", 0.5)
     st_kernel = features["spatiotemporal_kernel"]
     cooc = features["cooccurrence"]
     feasible = features["kinematic_feasible"]
@@ -316,6 +386,8 @@ def compute_pair_score(features, weights=None):
     # P(O_i <-> O_j) = sigma(w_s Sim + w_t f_kinematic + w_c Context)
     linear = (w["name"] * (name_sim - 0.5) +
               w["dob"] * (dob_sim - 0.5) +
+              w.get("email", 2.0) * (email_sim - 0.5) +
+              w.get("phone", 1.8) * (phone_sim - 0.5) +
               w["spatiotemporal"] * (st_kernel - 0.4) +
               w["cooccurrence"] * cooc)
     prob = 1.0 / (1.0 + math.exp(-linear))
@@ -338,6 +410,8 @@ def compute_pair_score(features, weights=None):
             "last_name_sim": features["last_name_sim"],
             "dob_sim": features["dob_sim"],
             "dob_conflict": features["dob_conflict"],
+            "email_sim": features["email_sim"],
+            "phone_sim": features["phone_sim"],
             "spatiotemporal_kernel": features["spatiotemporal_kernel"],
             "cooccurrence": features["cooccurrence"],
             "kinematic_feasible": features["kinematic_feasible"],
@@ -518,6 +592,8 @@ def resolve(observations, weights=None, threshold=0.5, precomputed_features=None
             "date_span": [obs_list[0]["timestamp"], obs_list[-1]["timestamp"]],
             "names_seen": sorted({f'{o["first_name"]} {o["last_name"]}' for o in obs_list}),
             "cities_seen": sorted({o["city"] for o in obs_list}),
+            "emails_seen": sorted({em for o in obs_list for em in o.get("emails", []) if em}),
+            "phones_seen": sorted({ph for o in obs_list for ph in o.get("phones", []) if ph}),
         })
     entities.sort(key=lambda e: -e["size"])
 

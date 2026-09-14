@@ -95,15 +95,17 @@ Instead of exhaustive comparison, **blocking** groups observations into "buckets
 1. **Phonetic Name Key**: Soundex of first name + Soundex of last name (e.g., `("R163", "S530")` for Robert Smith).
 2. **DOB + First Name Key**: Birth year + first name Soundex (e.g., `("1984", "R163")`).
 3. **Household Key**: Shared household identifier (`household_id`).
-4. **Persistent Token Key**: Any stable identifier, such as a masked device ID or tax token (`persistent_token`).
+4. **Persistent Token Key**: Stable device ID or tax token (`persistent_token`).
+5. **Email Address Key**: Direct hash on normalized email strings (`emails`).
+6. **Phone Number Key**: Direct match on active phone numbers (`phones`).
 
-Any two records that share **at least one** bucket become a *candidate pair*. This multi-index strategy ensures that even if someone experiences a simultaneous name change and relocation, their shared household ID or persistent token ensures they are still paired and evaluated.
+Any two records that share **at least one** bucket become a *candidate pair*. This multi-index strategy ensures that even if someone experiences a simultaneous name change and relocation, their shared email, phone, or household token guarantees they are paired and evaluated.
 
 ---
 
 ### Stage 2: Pairwise Evidence Scoring
 
-For each candidate pair $(O_i, O_j)$, the engine evaluates four complementary dimensions of evidence:
+For each candidate pair $(O_i, O_j)$, the engine evaluates six complementary dimensions of evidence:
 
 1. **Name Similarity ($S_{\text{name}} \in [0, 1]$)**:
    - Evaluates string distance using the **Jaro-Winkler metric** (giving higher weight to common initial characters).
@@ -116,21 +118,35 @@ For each candidate pair $(O_i, O_j)$, the engine evaluates four complementary di
    - Missing DOB on either record: $0.5$ (treated as uninformative neutral evidence, neither rewarded nor penalized).
    - Confirmed mismatch: $0.0$, and crucially flags a **biological conflict** (`dob_conflict = True`).
 
-3. **Spatio-Temporal Continuity Kernel ($K_{\text{st}} \in [0, 1]$)**:
+3. **Email Address Agreement ($S_{\text{email}} \in [0, 1]$)**:
+   - **Accumulative Attribute**: An individual may have zero, one, or several email addresses, which are naturally appended to their collection over time (e.g., personal email followed later by work or secondary email).
+   - Shared email address: $1.0$ (strong identity anchor).
+   - Disjoint email addresses: $0.2$ (mild negative pull, but not disqualifying as individuals often acquire new addresses).
+   - Missing email on either record: $0.5$ (uninformative neutral evidence).
+
+4. **Phone Number Agreement & Temporal Reallocation ($S_{\text{phone}} \in [0, 1]$)**:
+   - **Transient & Reallocated Attribute**: In most scenarios, only one phone number is active at time $t$ (the latest added), because old phone numbers are relinquished and reallocated by telecom carriers to other people after quarantine. However, some individuals maintain multiple active phone numbers concurrently (e.g. personal mobile and business line).
+   - When two observations share a phone number, the agreement is weighted by an exponential elapsed-time decay ($\tau_{\text{phone}} = 730\text{ days}$):
+     $$S_{\text{phone}}(\Delta t) = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{\tau_{\text{phone}}}\right)$$
+     - Contemporaneous match ($\Delta t \approx 0$): $1.0$ (maximum identity confirmation).
+     - Long gap ($\Delta t \gg 2\text{ years}$): decays toward $0.5$ (neutral), protecting against false merges across carrier reallocations.
+   - Disjoint phone numbers: $0.5 - 0.3 \times \exp(-\Delta t / \tau_{\text{phone}})$ (penalizes different active phones on the same day, relaxing toward neutral over years).
+   - Missing phone on either record: $0.5$ (neutral).
+
+5. **Spatio-Temporal Continuity Kernel ($K_{\text{st}} \in [0, 1]$)**:
    - Physical human mobility exhibits natural decay over time and distance:
      $$K_{\text{st}}(O_i, O_j) = \exp\left(-\frac{\Delta t}{\tau}\right) \times \exp\left(-\frac{\Delta d}{\sigma}\right)$$
      where $\Delta t$ is elapsed days, $\Delta d$ is geographic distance (calculated via the great-circle **Haversine formula**), $\tau = 365\text{ days}$, and $\sigma = 80\text{ km}$.
-   - Two sightings in the same neighborhood within weeks receive a strong score; observations years apart or across the country naturally attenuate unless reinforced by other evidence.
-   - Missing geographic coordinates return a neutral baseline rather than an artificial zero-distance proximity reward.
+   - Missing geographic coordinates return a neutral baseline ($0.4$) rather than an artificial zero-distance proximity reward.
 
-4. **Co-occurrence & Context ($S_{\text{context}} \in [0, 1]$)**:
+6. **Co-occurrence & Context ($S_{\text{context}} \in [0, 1]$)**:
    - Shared persistent token: $+0.98$ (near-certain anchor).
    - Shared household ID: $+0.35$ (strong family continuity).
    - Shared employer ID: $+0.30$ (professional continuity).
 
 #### Logistic Squashing & Disqualification Multipliers
 The evidence dimensions are combined into a linear logit and transformed through the standard logistic function:
-$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_{st}(K_{\text{st}} - 0.4) + w_c S_{\text{context}}\right)\right)}$$
+$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_e(S_{\text{email}} - 0.5) + w_p(S_{\text{phone}} - 0.5) + w_{st}(K_{\text{st}} - 0.4) + w_c S_{\text{context}}\right)\right)}$$
 
 Near-immutable biological and physical laws are **disqualifying**, not merely additive votes:
 - If a confirmed DOB mismatch exists, the probability is crushed multiplicatively:
@@ -201,7 +217,7 @@ The application features a single-page web interface served directly by the Pyth
 
 ### 1. Live Pipeline Controls & Real-Time Tuning
 - **Match Threshold Slider**: Adjust the acceptance threshold between $0.05$ and $0.95$.
-- **Dimension Weight Sliders**: Fine-tune the relative importance of Name Similarity, DOB Match, Spatio-temporal Kernel, Co-occurrence, Kinematic Penalty, and DOB Conflict Penalty.
+- **Dimension Weight Sliders**: Fine-tune the relative importance of Name Similarity, DOB Match, Email Match, Phone Match (with temporal decay), Spatio-temporal Kernel, Co-occurrence, Kinematic Penalty, and DOB Conflict Penalty.
 - **Precomputed In-Memory Feature Cache**: Adjusting sliders re-scores and re-clusters the dataset in **$<15\text{ ms}$**, providing smooth, instantaneous visual feedback.
 
 ### 2. Live Performance Metrics
@@ -211,7 +227,7 @@ The application features a single-page web interface served directly by the Pyth
 - **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with CartoDB Voyager (light) and Dark Matter (dark) tiles.
 - **Chronological Path Trajectories**: Dashed path lines tracking an entity's geographic movements across cities and years.
 - **Color-Coded Waypoints**: Waypoint markers shift in color from cool blue (earliest observation) to warm coral (most recent observation) to visualize temporal progression.
-- **Interactive Observation Popups**: Clicking any waypoint displays full observation metadata: Date, City, Street Address, DOB, Household ID, Employer ID, and Ground Truth ID.
+- **Interactive Observation Popups**: Clicking any waypoint displays full observation metadata: Date, City, Street Address, DOB, Household ID, Employer ID, Emails, Phones, and Ground Truth ID.
 - **"Fit Route" Button**: Instantly centers and zooms the camera to frame the selected individual's path.
 - **Dataset Context Layer**: Subtle background markers plot all other sightings across the country on hover.
 
@@ -222,11 +238,11 @@ The application features a single-page web interface served directly by the Pyth
 
 ### 5. Candidate Pairs Audit Trail
 - A dedicated inspector table listing every candidate pair generated by blocking.
-- Displays exact mathematical sub-scores (`first_name_sim`, `last_name_sim`, `dob_sim`, `st_kernel`, `cooccurrence`, `velocity_kmh`) and status (`linked`, `candidate`, `hard-blocked`, `dob-conflict`).
+- Displays exact mathematical sub-scores (`first_name_sim`, `last_name_sim`, `dob_sim`, `email_sim`, `phone_sim`, `st_kernel`, `cooccurrence`, `velocity_kmh`) and status (`linked`, `candidate`, `hard-blocked`, `dob-conflict`).
 - Provides complete explainability for why any two records were linked or rejected.
 
 ### 6. Raw Observations Feed
-- Searchable and sortable tabular view of the input data feed.
+- Searchable and sortable tabular view of the input data feed, including accumulative email addresses and active phone snapshots.
 
 ---
 
