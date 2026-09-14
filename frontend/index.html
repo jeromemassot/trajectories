@@ -98,7 +98,7 @@
   <section class="panel tab-panel" id="tab-map" hidden>
     <p class="hint">Pick a resolved entity to explore its reconstructed trajectory
       (chronological path across observed locations) on a dynamic interactive map.
-      Waypoint color intensity encodes recency; click any point to view observation details.</p>
+      Waypoint color intensity encodes recency; replay the timeline or hover over any connecting line to inspect why the algorithm resolved them as the same person.</p>
     <div class="map-controls-bar">
       <label class="map-select-label">
         <span>Select entity:</span>
@@ -107,7 +107,47 @@
       <button type="button" id="mapFitBtn" class="map-btn">Fit route</button>
       <span id="mapEntityInfo" class="map-entity-info"></span>
     </div>
-    <div id="mapContainer"></div>
+
+    <div class="map-timeline-bar" id="mapTimelineBar">
+      <div class="timeline-btn-group">
+        <button type="button" id="timelinePlayBtn" class="timeline-btn primary" title="Play / Pause timeline">▶ Play</button>
+        <button type="button" id="timelinePrevBtn" class="timeline-btn" title="Previous observation">⏮</button>
+        <button type="button" id="timelineNextBtn" class="timeline-btn" title="Next observation">⏭</button>
+        <button type="button" id="timelineReplayBtn" class="timeline-btn" title="Replay from start">↺ Replay</button>
+      </div>
+
+      <div class="timeline-scrubber-wrap">
+        <input type="range" id="timelineScrubber" min="0" max="0" value="0" step="1" title="Timeline scrubber" />
+      </div>
+
+      <div class="timeline-speed-wrap">
+        <label for="timelineSpeedSelect">Speed:</label>
+        <select id="timelineSpeedSelect" class="timeline-select">
+          <option value="2200">0.5×</option>
+          <option value="1200" selected>1.0×</option>
+          <option value="600">2.0×</option>
+        </select>
+      </div>
+
+      <div class="timeline-status-badge" id="timelineStatus">Ready to play</div>
+    </div>
+
+    <div class="map-wrapper-relative">
+      <div id="mapContainer"></div>
+      <div id="mapExplanationCard" class="map-explanation-card" hidden>
+        <div class="explanation-card-header">
+          <div class="explanation-card-title">
+            <span class="pulse-indicator"></span>
+            <span id="explanationTitleText">Connection Rationale</span>
+          </div>
+          <div class="explanation-header-right">
+            <span id="explanationScoreBadge" class="explanation-score-badge">P = –</span>
+            <button type="button" id="explanationCloseBtn" class="explanation-close-btn" title="Close explanation overlay">✕</button>
+          </div>
+        </div>
+        <div id="explanationBody" class="explanation-card-body"></div>
+      </div>
+    </div>
   </section>
 
   <section class="panel tab-panel" id="tab-pairs" hidden>

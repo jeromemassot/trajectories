@@ -225,7 +225,10 @@ The application features a single-page web interface served directly by the Pyth
 
 ### 3. Dynamic Interactive Trajectory Map (Leaflet.js)
 - **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with CartoDB Voyager (light) and Dark Matter (dark) tiles.
-- **Chronological Path Trajectories**: Dashed path lines tracking an entity's geographic movements across cities and years.
+- **Timeline Playback Engine**: Complete playback controller (`Play`, `Pause`, `Prev Step`, `Next Step`, `Replay`, `Scrubber Slider`, and `Speed Multiplier 0.5x–4x`) allowing users to watch an individual's journey unfold chronologically across time and space.
+- **Active Waypoint Halo & Sequential Reveal**: The timeline dynamically reveals waypoints and trajectory segments step-by-step, highlighting the current observation with an animated pulsing radar halo.
+- **Segment Link Explainability Tooltips**: Hovering over any trajectory connecting line displays an interactive, sticky tooltip detailing the exact entity resolution probability score ($P(\text{Match})$), linkage verdict, and multi-attribute feature breakdown (name, DOB, email, phone with reallocation decay, transit velocity, spatial co-occurrence).
+- **Real-Time Link Explanation Card**: A floating glassmorphic panel provides an immediate, plain-English rationale for why consecutive observations were matched as the same person, complete with color-coded metric badges.
 - **Color-Coded Waypoints**: Waypoint markers shift in color from cool blue (earliest observation) to warm coral (most recent observation) to visualize temporal progression.
 - **Interactive Observation Popups**: Clicking any waypoint displays full observation metadata: Date, City, Street Address, DOB, Household ID, Employer ID, Emails, Phones, and Ground Truth ID.
 - **"Fit Route" Button**: Instantly centers and zooms the camera to frame the selected individual's path.

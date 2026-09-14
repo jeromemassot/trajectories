@@ -268,13 +268,257 @@ button:hover { filter: brightness(1.08); }
   margin-left: auto;
 }
 
+/* Timeline Playback Bar */
+.map-timeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.timeline-btn-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.timeline-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.timeline-btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+.timeline-btn.primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.timeline-btn.primary:hover {
+  filter: brightness(1.1);
+}
+.timeline-scrubber-wrap {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+}
+.timeline-scrubber-wrap input[type=range] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.timeline-speed-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.timeline-select {
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.timeline-status-badge {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+  padding: 4px 8px;
+  background: var(--bg);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* Map Wrapper & Floating Explanation Overlay */
+.map-wrapper-relative {
+  position: relative;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
 #mapContainer {
   width: 100%;
-  height: 520px;
+  height: 540px;
   background: var(--bg);
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border: none;
   z-index: 1;
+}
+
+.map-explanation-card {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+  z-index: 1000;
+  padding: 12px 14px;
+  animation: fadeIn 0.2s ease-out;
+}
+:root[data-theme="dark"] .map-explanation-card {
+  background: rgba(28, 31, 38, 0.94);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .map-explanation-card {
+    background: rgba(28, 31, 38, 0.94);
+  }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.explanation-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.explanation-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.pulse-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(59, 91, 219, 0.7);
+  animation: pulseDot 1.8s infinite;
+}
+@keyframes pulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 91, 219, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(59, 91, 219, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 91, 219, 0); }
+}
+.explanation-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.explanation-score-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.explanation-score-badge.high {
+  background: #d3f9d8;
+  color: #2b8a3e;
+}
+:root[data-theme="dark"] .explanation-score-badge.high {
+  background: #1e3a24;
+  color: #69db7c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .explanation-score-badge.high {
+    background: #1e3a24;
+    color: #69db7c;
+  }
+}
+.explanation-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.explanation-close-btn:hover {
+  color: var(--text);
+}
+
+.explanation-narrative {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.explanation-pill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.explanation-pill {
+  font-size: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+}
+.explanation-pill-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.explanation-pill-val {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Custom Leaflet tooltip for segment hover */
+.trajectory-segment-tooltip {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+  font-size: 0.78rem !important;
+  padding: 8px 10px !important;
+  line-height: 1.4 !important;
+  pointer-events: none;
+}
+.trajectory-segment-tooltip::before {
+  border-top-color: var(--panel) !important;
+}
+
+/* Active pulse marker for current playback step */
+.active-pulse-halo {
+  animation: markerHalo 1.5s infinite ease-out;
+}
+@keyframes markerHalo {
+  0% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.6); opacity: 0.4; }
+  100% { transform: scale(2.1); opacity: 0; }
 }
 
 /* Custom Leaflet popup & control styling to match app theme */

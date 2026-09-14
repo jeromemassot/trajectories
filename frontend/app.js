@@ -35,6 +35,7 @@
     initTheme();
     bindControls();
     bindTabs();
+    initTimelineControls();
     const health = await fetchJSON("/api/health");
     $("#statusBadge").textContent = `${health.n_observations} observations loaded`;
 
@@ -195,6 +196,7 @@
       body: JSON.stringify({ threshold: state.threshold, weights: state.weights }),
     });
     state.result = result;
+    buildPairMap();
     $("#statusBadge").textContent = `${state.observations.length} observations · ` +
       `${result.entities.length} resolved entities`;
     renderMetrics();
@@ -345,6 +347,158 @@
   // ----------------------------------------------------------------- map --
   let currentEntityLatLngs = [];
 
+  const timelineState = {
+    obsList: [],
+    step: 0,
+    isPlaying: false,
+    timer: null,
+    speedMs: 1200,
+    markers: [],
+    segments: [],
+    haloMarker: null,
+  };
+
+  function buildPairMap() {
+    state.pairMap = new Map();
+    if (!state.result || !state.result.pairs) return;
+    state.result.pairs.forEach((p) => {
+      state.pairMap.set(`${p.observation_id_i}:${p.observation_id_j}`, p);
+      state.pairMap.set(`${p.observation_id_j}:${p.observation_id_i}`, p);
+    });
+  }
+
+  function getPairBetween(id1, id2) {
+    if (!state.pairMap) return null;
+    return state.pairMap.get(`${id1}:${id2}`) || null;
+  }
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+  }
+
+  function generateConnectionExplanation(o1, o2, pair) {
+    const f = (pair && pair.features) || {};
+    const scoreVal = pair ? pair.score.toFixed(3) : "–";
+    const scorePct = pair ? (pair.score * 100).toFixed(1) + "%" : "–";
+    const isHigh = pair && pair.score >= state.threshold;
+
+    // 1. Name continuity
+    let nameText = "";
+    let namePill = "";
+    if (o1.first_name === o2.first_name && o1.last_name === o2.last_name) {
+      nameText = "identical full name";
+      namePill = `${o1.first_name} ${o1.last_name} (100% Match)`;
+    } else if (o1.first_name === o2.first_name && o1.last_name !== o2.last_name) {
+      nameText = `same first name with surname transition (${o1.last_name} → ${o2.last_name})`;
+      namePill = `First: ${o1.first_name} | ${o1.last_name} → ${o2.last_name}`;
+    } else {
+      const sim = ((f.name_sim || 0) * 100).toFixed(0);
+      nameText = `high name similarity (${sim}%)`;
+      namePill = `${o1.first_name} ${o1.last_name} ↔ ${o2.first_name} ${o2.last_name} (${sim}%)`;
+    }
+
+    // 2. Date of birth agreement
+    let dobText = "";
+    let dobPill = "";
+    if (o1.dob && o2.dob && o1.dob === o2.dob) {
+      dobText = `identical confirmed DOB (${o1.dob})`;
+      dobPill = `Verified: ${o1.dob}`;
+    } else if (!o1.dob || !o2.dob) {
+      dobText = "uninformative neutral DOB (missing on one record)";
+      dobPill = o1.dob || o2.dob ? `Known: ${o1.dob || o2.dob} (Partial)` : "Unknown";
+    } else {
+      dobText = `DOB mismatch (${o1.dob} vs ${o2.dob})`;
+      dobPill = `Conflict: ${o1.dob} vs ${o2.dob}`;
+    }
+
+    // 3. Email anchor
+    const sharedEmails = (o1.emails || []).filter((e) => (o2.emails || []).includes(e));
+    let emailText = "";
+    let emailPill = "";
+    if (sharedEmails.length) {
+      emailText = `shared email address (${sharedEmails.join(", ")})`;
+      emailPill = sharedEmails.join(", ");
+    } else if (o1.emails?.length && o2.emails?.length) {
+      emailText = "different email addresses";
+      emailPill = "Disjoint aliases";
+    } else {
+      emailPill = (o1.emails?.length || o2.emails?.length) ? "Partial email record" : "No email logged";
+    }
+
+    // 4. Phone active snapshot & reallocation
+    const sharedPhones = (o1.phones || []).filter((p) => (o2.phones || []).includes(p));
+    let phoneText = "";
+    let phonePill = "";
+    if (sharedPhones.length) {
+      phoneText = `shared active phone number (${sharedPhones.join(", ")})`;
+      phonePill = `${sharedPhones.join(", ")} (sim: ${(f.phone_sim || 1).toFixed(2)})`;
+    } else if (o1.phones?.length && o2.phones?.length) {
+      phonePill = "Different active lines (churn)";
+    } else {
+      phonePill = (o1.phones?.length || o2.phones?.length) ? "Partial phone record" : "No phone logged";
+    }
+
+    // 5. Spatio-temporal mobility & kinematics
+    const d1 = new Date(o1.timestamp);
+    const d2 = new Date(o2.timestamp);
+    const dtDays = Math.abs(Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+    const distKm = haversineKm(o1.lat, o1.lon, o2.lat, o2.lon);
+    let mobilityText = "";
+    let mobilityPill = "";
+    if (distKm != null) {
+      const vel = f.velocity_kmh != null ? f.velocity_kmh : (dtDays > 0 ? (distKm / Math.max(dtDays * 24, 0.5)).toFixed(1) : 0);
+      mobilityText = `${distKm} km traveled over ${dtDays} days (${vel} km/h, physically feasible)`;
+      mobilityPill = `${distKm} km in ${dtDays}d · ${vel} km/h`;
+    } else {
+      mobilityText = `${dtDays} days elapsed (location coordinates missing)`;
+      mobilityPill = `${dtDays} days elapsed`;
+    }
+
+    // 6. Context continuity
+    const contextParts = [];
+    if (o1.household_id && o1.household_id === o2.household_id) contextParts.push(`Household ${o1.household_id}`);
+    if (o1.employer_id && o1.employer_id === o2.employer_id) contextParts.push(`Employer ${o1.employer_id}`);
+    if (o1.persistent_token && o1.persistent_token === o2.persistent_token) contextParts.push("Shared Device Token");
+    const contextPill = contextParts.length ? contextParts.join(", ") : "Independent context";
+
+    // Synthesized narrative
+    const highlights = [];
+    if (nameText) highlights.push(nameText);
+    if (dobText && !dobText.includes("neutral")) highlights.push(dobText);
+    if (sharedEmails.length) highlights.push(emailText);
+    if (sharedPhones.length) highlights.push(phoneText);
+    if (contextParts.length) highlights.push(contextParts.join(" and "));
+    highlights.push(mobilityText);
+
+    const narrative = `The algorithm connects these observations with <b>${scorePct} resolution probability</b> based on ${highlights.join(", ")}.`;
+
+    return {
+      scorePct,
+      scoreVal,
+      isHigh,
+      narrative,
+      pills: [
+        { label: "Name Match", val: namePill },
+        { label: "Date of Birth", val: dobPill },
+        { label: "Email Anchor", val: emailPill },
+        { label: "Phone Line", val: phonePill },
+        { label: "Transit & Speed", val: mobilityPill },
+        { label: "Context Continuity", val: contextPill },
+      ],
+    };
+  }
+
   function initLeafletMap() {
     if (!window.L || state.map) return;
     const mapEl = $("#mapContainer");
@@ -365,6 +519,226 @@
     const fitBtn = $("#mapFitBtn");
     if (fitBtn) {
       fitBtn.addEventListener("click", fitCurrentTrajectory);
+    }
+  }
+
+  function initTimelineControls() {
+    const playBtn = $("#timelinePlayBtn");
+    const prevBtn = $("#timelinePrevBtn");
+    const nextBtn = $("#timelineNextBtn");
+    const replayBtn = $("#timelineReplayBtn");
+    const scrubber = $("#timelineScrubber");
+    const speedSelect = $("#timelineSpeedSelect");
+    const closeBtn = $("#explanationCloseBtn");
+
+    if (playBtn) playBtn.addEventListener("click", togglePlayTimeline);
+    if (prevBtn) prevBtn.addEventListener("click", () => stepTimeline(-1));
+    if (nextBtn) nextBtn.addEventListener("click", () => stepTimeline(1));
+    if (replayBtn) replayBtn.addEventListener("click", replayTimeline);
+
+    if (scrubber) {
+      scrubber.addEventListener("input", (e) => {
+        seekTimeline(parseInt(e.target.value, 10));
+      });
+    }
+
+    if (speedSelect) {
+      speedSelect.addEventListener("change", (e) => {
+        timelineState.speedMs = parseInt(e.target.value, 10);
+        if (timelineState.isPlaying) {
+          pauseTimeline();
+          playTimeline();
+        }
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        const card = $("#mapExplanationCard");
+        if (card) card.hidden = true;
+      });
+    }
+  }
+
+  function togglePlayTimeline() {
+    if (timelineState.isPlaying) {
+      pauseTimeline();
+    } else {
+      if (timelineState.step >= timelineState.obsList.length - 1) {
+        timelineState.step = 0;
+        applyTimelineStep(0, true);
+      }
+      playTimeline();
+    }
+  }
+
+  function playTimeline() {
+    if (timelineState.obsList.length <= 1) return;
+    timelineState.isPlaying = true;
+    const playBtn = $("#timelinePlayBtn");
+    if (playBtn) {
+      playBtn.textContent = "⏸ Pause";
+      playBtn.classList.add("playing");
+    }
+    clearInterval(timelineState.timer);
+    timelineState.timer = setInterval(() => {
+      if (timelineState.step < timelineState.obsList.length - 1) {
+        timelineState.step++;
+        applyTimelineStep(timelineState.step, true);
+      } else {
+        pauseTimeline();
+      }
+    }, timelineState.speedMs);
+  }
+
+  function pauseTimeline() {
+    timelineState.isPlaying = false;
+    clearInterval(timelineState.timer);
+    timelineState.timer = null;
+    const playBtn = $("#timelinePlayBtn");
+    if (playBtn) {
+      playBtn.textContent = "▶ Play";
+      playBtn.classList.remove("playing");
+    }
+  }
+
+  function replayTimeline() {
+    pauseTimeline();
+    timelineState.step = 0;
+    applyTimelineStep(0, true);
+    playTimeline();
+  }
+
+  function stepTimeline(delta) {
+    pauseTimeline();
+    const newStep = Math.max(0, Math.min(timelineState.obsList.length - 1, timelineState.step + delta));
+    timelineState.step = newStep;
+    applyTimelineStep(newStep, true);
+  }
+
+  function seekTimeline(newStep) {
+    pauseTimeline();
+    timelineState.step = Math.max(0, Math.min(timelineState.obsList.length - 1, newStep));
+    applyTimelineStep(timelineState.step, true);
+  }
+
+  function applyTimelineStep(stepIdx, centerMap = false) {
+    const obs = timelineState.obsList;
+    if (!obs || obs.length === 0) return;
+
+    // 1. Manage marker visibility
+    timelineState.markers.forEach((m, idx) => {
+      if (idx <= stepIdx) {
+        if (!state.trajectoryLayerGroup.hasLayer(m)) {
+          state.trajectoryLayerGroup.addLayer(m);
+        }
+      } else {
+        if (state.trajectoryLayerGroup.hasLayer(m)) {
+          state.trajectoryLayerGroup.removeLayer(m);
+        }
+      }
+    });
+
+    // 2. Manage segment visibility and styling
+    timelineState.segments.forEach((seg, idx) => {
+      if (idx < stepIdx) {
+        if (!state.trajectoryLayerGroup.hasLayer(seg.line)) {
+          state.trajectoryLayerGroup.addLayer(seg.line);
+        }
+        if (idx === stepIdx - 1) {
+          seg.line.setStyle({
+            color: "#ff6b6b",
+            weight: 5.5,
+            opacity: 1.0,
+            dashArray: null,
+          });
+        } else {
+          seg.line.setStyle({
+            color: "#3b5bdb",
+            weight: 3.5,
+            opacity: 0.85,
+            dashArray: "6, 6",
+          });
+        }
+      } else {
+        if (state.trajectoryLayerGroup.hasLayer(seg.line)) {
+          state.trajectoryLayerGroup.removeLayer(seg.line);
+        }
+      }
+    });
+
+    // 3. Manage active halo marker
+    const activeObs = obs[stepIdx];
+    if (activeObs) {
+      if (!timelineState.haloMarker) {
+        timelineState.haloMarker = L.circleMarker([activeObs.lat, activeObs.lon], {
+          radius: 14,
+          fillColor: "#ff6b6b",
+          fillOpacity: 0.35,
+          color: "#ff6b6b",
+          weight: 2.5,
+          className: "active-pulse-halo",
+        });
+      } else {
+        timelineState.haloMarker.setLatLng([activeObs.lat, activeObs.lon]);
+      }
+      if (!state.trajectoryLayerGroup.hasLayer(timelineState.haloMarker)) {
+        state.trajectoryLayerGroup.addLayer(timelineState.haloMarker);
+      }
+    }
+
+    // 4. Update scrubber and status badge
+    const scrubber = $("#timelineScrubber");
+    if (scrubber) scrubber.value = stepIdx;
+    const statusBadge = $("#timelineStatus");
+    if (statusBadge && activeObs) {
+      statusBadge.textContent = `Waypoint ${stepIdx + 1} of ${obs.length} · ${activeObs.timestamp} · ${activeObs.city}`;
+    }
+
+    // 5. Update and show Connection Explanation Card
+    const card = $("#mapExplanationCard");
+    const titleText = $("#explanationTitleText");
+    const scoreBadge = $("#explanationScoreBadge");
+    const bodyEl = $("#explanationBody");
+
+    if (card && titleText && scoreBadge && bodyEl) {
+      card.hidden = false;
+      if (stepIdx > 0) {
+        const prevObs = obs[stepIdx - 1];
+        const pair = getPairBetween(prevObs.observation_id, activeObs.observation_id);
+        const exp = generateConnectionExplanation(prevObs, activeObs, pair);
+
+        titleText.textContent = `Link #${stepIdx} ➔ #${stepIdx + 1}: ${prevObs.city} → ${activeObs.city}`;
+        scoreBadge.textContent = `P = ${exp.scoreVal} (${exp.scorePct})`;
+        scoreBadge.className = "explanation-score-badge" + (exp.isHigh ? " high" : "");
+
+        bodyEl.innerHTML = `
+          <div class="explanation-narrative">${exp.narrative}</div>
+          <div class="explanation-pill-grid">
+            ${exp.pills.map((p) => `
+              <div class="explanation-pill">
+                <span class="explanation-pill-label">${p.label}</span>
+                <span class="explanation-pill-val">${p.val}</span>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      } else {
+        titleText.textContent = `Initial Sighting: ${activeObs.city}`;
+        scoreBadge.textContent = "Start Point";
+        scoreBadge.className = "explanation-score-badge";
+        bodyEl.innerHTML = `
+          <div class="explanation-narrative">
+            Reconstructed timeline starts here on <b>${activeObs.timestamp}</b> for <b>${activeObs.first_name} ${activeObs.last_name}</b>.
+            Click <b>Play (▶)</b> or <b>Next (⏭)</b> to advance the trajectory and inspect why the algorithm connects each subsequent sighting.
+          </div>
+        `;
+      }
+    }
+
+    // 6. Smooth pan map if requested
+    if (centerMap && state.map && activeObs) {
+      state.map.panTo([activeObs.lat, activeObs.lon], { animate: true, duration: 0.5 });
     }
   }
 
@@ -402,9 +776,13 @@
     }
     if (!state.map) return;
 
+    pauseTimeline();
     state.backgroundLayerGroup.clearLayers();
     state.trajectoryLayerGroup.clearLayers();
     currentEntityLatLngs = [];
+    timelineState.markers = [];
+    timelineState.segments = [];
+    timelineState.haloMarker = null;
 
     // 1. Draw subtle background observation dots across the entire dataset
     state.observations.forEach((o) => {
@@ -435,23 +813,84 @@
       infoEl.textContent = `${entity.cluster_id} · ${obs.length} mapped points · ${entity.cities_seen.join(" → ")}`;
     }
 
-    if (obs.length === 0) return;
-
-    currentEntityLatLngs = obs.map((o) => [o.lat, o.lon]);
-
-    // 2. Chronological trajectory polyline connecting observations
-    if (obs.length > 1) {
-      const polyline = L.polyline(currentEntityLatLngs, {
-        color: "#3b5bdb",
-        weight: 3.5,
-        opacity: 0.85,
-        dashArray: "6, 6",
-        lineCap: "round",
-      });
-      state.trajectoryLayerGroup.addLayer(polyline);
+    if (obs.length === 0) {
+      const timelineBar = $("#mapTimelineBar");
+      if (timelineBar) {
+        timelineBar.style.opacity = "0.5";
+        timelineBar.style.pointerEvents = "none";
+      }
+      const card = $("#mapExplanationCard");
+      if (card) card.hidden = true;
+      return;
     }
 
-    // 3. Chronologically colored waypoint markers with rich popups
+    const timelineBar = $("#mapTimelineBar");
+    if (timelineBar) {
+      timelineBar.style.opacity = "1";
+      timelineBar.style.pointerEvents = "auto";
+    }
+    timelineState.obsList = obs;
+    currentEntityLatLngs = obs.map((o) => [o.lat, o.lon]);
+
+    // 2. Build individual consecutive line segments with explainability tooltips
+    for (let k = 0; k < obs.length - 1; k++) {
+      const o1 = obs[k];
+      const o2 = obs[k + 1];
+      const pair = getPairBetween(o1.observation_id, o2.observation_id);
+      const exp = generateConnectionExplanation(o1, o2, pair);
+
+      const segLine = L.polyline(
+        [[o1.lat, o1.lon], [o2.lat, o2.lon]],
+        {
+          color: "#3b5bdb",
+          weight: 3.5,
+          opacity: 0.85,
+          dashArray: "6, 6",
+          lineCap: "round",
+        }
+      );
+
+      const tooltipContent = `
+        <div style="font-weight:700;color:var(--accent);margin-bottom:3px;">
+          Link #${k + 1} ➔ #${k + 2}: ${o1.city} → ${o2.city}
+        </div>
+        <div style="font-size:0.8rem;margin-bottom:4px;">
+          <b>Resolution Confidence:</b> <span style="font-weight:700;color:${exp.isHigh ? "var(--good)" : "var(--warn)"};">${exp.scorePct}</span> (P = ${exp.scoreVal})
+        </div>
+        <div style="font-size:0.75rem;color:var(--muted);max-width:280px;line-height:1.4;">
+          ${exp.narrative}
+        </div>
+      `;
+
+      segLine.bindTooltip(tooltipContent, {
+        sticky: true,
+        className: "trajectory-segment-tooltip",
+      });
+
+      segLine.on("click", () => {
+        seekTimeline(k + 1);
+      });
+
+      segLine.on("mouseover", () => {
+        segLine.setStyle({ weight: 5.5, opacity: 1.0 });
+      });
+
+      segLine.on("mouseout", () => {
+        if (timelineState.step - 1 !== k) {
+          segLine.setStyle({ weight: 3.5, opacity: 0.85 });
+        }
+      });
+
+      timelineState.segments.push({
+        line: segLine,
+        fromIdx: k,
+        toIdx: k + 1,
+        pair,
+        explanation: exp,
+      });
+    }
+
+    // 3. Build waypoint markers with rich popups
     obs.forEach((o, idx) => {
       const t = obs.length > 1 ? idx / (obs.length - 1) : 1;
       const r = Math.round(59 + t * 165);
@@ -467,6 +906,9 @@
         weight: 2,
       });
 
+      const emailsStr = (o.emails && o.emails.length) ? o.emails.join(", ") : "None";
+      const phonesStr = (o.phones && o.phones.length) ? o.phones.join(", ") : "None";
+
       const popupHtml = `
         <div class="map-popup-body">
           <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--text);">${o.first_name} ${o.last_name}</div>
@@ -476,6 +918,8 @@
             <div><b>Location:</b> ${o.city}</div>
             ${o.address ? `<div><b>Address:</b> ${o.address}</div>` : ""}
             ${o.dob ? `<div><b>DOB:</b> ${o.dob}</div>` : ""}
+            <div><b>Email:</b> ${emailsStr}</div>
+            <div><b>Phone:</b> ${phonesStr}</div>
             ${o.household_id ? `<div><b>Household:</b> <code>${o.household_id}</code></div>` : ""}
             ${o.employer_id ? `<div><b>Employer:</b> <code>${o.employer_id}</code></div>` : ""}
             ${state.showTruth ? `<div style="margin-top:4px;border-top:1px dashed var(--border);padding-top:4px;color:var(--muted);"><b>Truth ID:</b> <code>${o.entity_id_truth}</code></div>` : ""}
@@ -489,9 +933,24 @@
         offset: [0, -6],
       });
 
-      state.trajectoryLayerGroup.addLayer(marker);
+      marker.on("click", () => {
+        seekTimeline(idx);
+      });
+
+      timelineState.markers.push(marker);
     });
 
+    // 4. Initialize Scrubber
+    const scrubber = $("#timelineScrubber");
+    if (scrubber) {
+      scrubber.min = 0;
+      scrubber.max = obs.length - 1;
+      scrubber.value = obs.length - 1;
+    }
+
+    // Default: show full trajectory at final step
+    timelineState.step = obs.length - 1;
+    applyTimelineStep(timelineState.step, false);
     fitCurrentTrajectory();
   }
 
