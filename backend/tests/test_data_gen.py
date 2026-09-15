@@ -98,6 +98,13 @@ class TestDataGen(unittest.TestCase):
         self.assertEqual(summary["coverage"]["employer_obs"], 2)
         self.assertEqual(summary["coverage"]["address_obs"], 3)
 
+    def test_make_population_custom_target_observations(self):
+        """make_population should produce exactly the requested number of target observations."""
+        for target in [100, 180, 250, 400]:
+            obs, summary = make_population(target_obs=target, return_summary=True)
+            self.assertEqual(len(obs), target)
+            self.assertEqual(summary["total_observations"], target)
+
 
 if __name__ == "__main__":
     unittest.main()

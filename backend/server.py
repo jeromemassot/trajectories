@@ -131,6 +131,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 gen_params = {
                     "seed": int(body.get("seed", 42)),
+                    "target_obs": int(body["target_obs"]) if body.get("target_obs") is not None else None,
                     "n_neighborhood": int(body.get("n_neighborhood", 6)),
                     "n_intrastate": int(body.get("n_intrastate", 6)),
                     "n_interstate": int(body.get("n_interstate", 6)),

@@ -241,14 +241,36 @@
       </div>
     </div>
 
-    <!-- Generator Presets -->
+    <!-- Generator Presets (Single Line) -->
     <div class="gen-presets-bar">
       <span class="gen-presets-label">Quick presets:</span>
-      <button type="button" class="gen-preset-btn active" data-preset="benchmark">🎯 Standard Benchmark (30 entities, Seed 42)</button>
-      <button type="button" class="gen-preset-btn" data-preset="clean">✨ Clean / Zero Noise</button>
-      <button type="button" class="gen-preset-btn" data-preset="challenging">⚡ Challenging Noise</button>
-      <button type="button" class="gen-preset-btn" data-preset="high_mobility">🚀 High Mobility</button>
-      <button type="button" class="gen-preset-btn" data-preset="small">🔬 Small Test Set (15 entities)</button>
+      <button type="button" class="gen-preset-btn active" data-preset="benchmark" title="Standard Benchmark (30 entities, 306 obs, Seed 42)">🎯 Standard Benchmark</button>
+      <button type="button" class="gen-preset-btn" data-preset="clean" title="Clean / Zero Noise (100% full dates, 0% typos)">✨ Clean / Zero Noise</button>
+      <button type="button" class="gen-preset-btn" data-preset="challenging" title="Challenging Noise (High typos & shifted dates)">⚡ Challenging Noise</button>
+      <button type="button" class="gen-preset-btn" data-preset="high_mobility" title="High Mobility (Enriched intra & inter-state movers)">🚀 High Mobility</button>
+      <button type="button" class="gen-preset-btn" data-preset="small" title="Small Test Set (15 entities, 150 obs)">🔬 Small Test Set</button>
+    </div>
+
+    <!-- Global Dataset Controls: Observations Count & Random Seed (Outside Card 1) -->
+    <div class="gen-global-bar">
+      <div class="gen-global-item">
+        <label class="gen-global-label" for="gen_target_obs">
+          <span>Total Observations:</span>
+          <b id="gen_target_obs_val">306</b>
+        </label>
+        <div class="gen-obs-input-wrap">
+          <input type="range" id="gen_target_obs" min="40" max="1000" step="10" value="306" />
+          <input type="number" id="gen_target_obs_num" min="20" max="3000" step="1" value="306" style="width: 80px;" title="Type exact number of observations" />
+        </div>
+      </div>
+
+      <div class="gen-global-item gen-seed-item">
+        <label class="gen-global-label" for="gen_seed">Random Seed:</label>
+        <div class="gen-seed-group">
+          <input type="number" id="gen_seed" value="42" style="width: 90px;" />
+          <button type="button" id="genRandomSeedBtn" class="gen-btn-sm" title="Pick random seed">🎲 Randomize</button>
+        </div>
+      </div>
     </div>
 
     <!-- Generator Grid -->
@@ -257,14 +279,6 @@
       <div class="gen-card">
         <h3>1. Population &amp; Mobility Archetypes</h3>
         <p class="hint">Adjust the distribution of mobility behaviors and confounder entities.</p>
-
-        <div class="gen-input-row">
-          <label for="gen_seed">Random Seed</label>
-          <div class="gen-seed-group">
-            <input type="number" id="gen_seed" value="42" style="width: 100px;" />
-            <button type="button" id="genRandomSeedBtn" class="gen-btn-sm" title="Pick random seed">🎲 Randomize</button>
-          </div>
-        </div>
 
         <label class="slider-row">
           <span>Cat 1: Neighborhood Stayers (&lt;5 km radius) <b id="gen_n_neighborhood_val">6</b></span>

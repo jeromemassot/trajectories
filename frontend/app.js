@@ -1217,6 +1217,7 @@
   const GENERATOR_PRESETS = {
     benchmark: {
       seed: 42,
+      target_obs: 306,
       n_neighborhood: 6,
       n_intrastate: 6,
       n_interstate: 6,
@@ -1239,6 +1240,7 @@
     },
     clean: {
       seed: 42,
+      target_obs: 306,
       n_neighborhood: 6,
       n_intrastate: 6,
       n_interstate: 6,
@@ -1261,6 +1263,7 @@
     },
     challenging: {
       seed: 42,
+      target_obs: 306,
       n_neighborhood: 6,
       n_intrastate: 6,
       n_interstate: 6,
@@ -1283,6 +1286,7 @@
     },
     high_mobility: {
       seed: 42,
+      target_obs: 306,
       n_neighborhood: 3,
       n_intrastate: 8,
       n_interstate: 9,
@@ -1305,6 +1309,7 @@
     },
     small: {
       seed: 42,
+      target_obs: 150,
       n_neighborhood: 3,
       n_intrastate: 3,
       n_interstate: 3,
@@ -1333,6 +1338,13 @@
       if (el) el.textContent = val;
     };
     const getNum = (id) => parseFloat($(`#${id}`)?.value || 0);
+
+    const targetObs = getNum("gen_target_obs") || 306;
+    setVal("gen_target_obs_val", targetObs);
+    const targetObsNum = $("#gen_target_obs_num");
+    if (targetObsNum && document.activeElement !== targetObsNum) {
+      targetObsNum.value = targetObs;
+    }
 
     setVal("gen_n_neighborhood_val", getNum("gen_n_neighborhood"));
     setVal("gen_n_intrastate_val", getNum("gen_n_intrastate"));
@@ -1372,6 +1384,10 @@
       } else {
         el.value = val;
       }
+      if (key === "target_obs") {
+        const numEl = $("#gen_target_obs_num");
+        if (numEl) numEl.value = val;
+      }
     }
 
     document.querySelectorAll(".gen-preset-btn").forEach((btn) => {
@@ -1389,6 +1405,23 @@
     genPanel.querySelectorAll("input[type=range], input[type=number]").forEach((input) => {
       input.addEventListener("input", updateGeneratorLabels);
     });
+
+    // Two-way synchronization between observation count slider and number input
+    const targetObsSlider = $("#gen_target_obs");
+    const targetObsNum = $("#gen_target_obs_num");
+    if (targetObsSlider && targetObsNum) {
+      targetObsSlider.addEventListener("input", () => {
+        targetObsNum.value = targetObsSlider.value;
+        updateGeneratorLabels();
+      });
+      targetObsNum.addEventListener("input", () => {
+        const v = parseInt(targetObsNum.value, 10);
+        if (!isNaN(v) && v >= 20) {
+          targetObsSlider.value = v;
+          updateGeneratorLabels();
+        }
+      });
+    }
 
     // Preset buttons
     genPanel.querySelectorAll(".gen-preset-btn").forEach((btn) => {
@@ -1440,6 +1473,7 @@
       genBtn.addEventListener("click", async () => {
         const payload = {
           seed: parseInt($("#gen_seed")?.value || 42, 10),
+          target_obs: parseInt($("#gen_target_obs_num")?.value || $("#gen_target_obs")?.value || 306, 10),
           n_neighborhood: parseInt($("#gen_n_neighborhood")?.value || 6, 10),
           n_intrastate: parseInt($("#gen_n_intrastate")?.value || 6, 10),
           n_interstate: parseInt($("#gen_n_interstate")?.value || 6, 10),

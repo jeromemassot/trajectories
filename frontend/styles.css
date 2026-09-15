@@ -650,9 +650,13 @@ footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size:
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-  padding: 10px 14px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 12px;
+  padding: 8px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -663,6 +667,8 @@ footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size:
   font-weight: 600;
   color: var(--muted);
   margin-right: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .gen-preset-btn {
@@ -670,9 +676,11 @@ footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size:
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 12px;
+  padding: 5px 11px;
   font-size: 0.78rem;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
@@ -686,6 +694,68 @@ footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size:
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
+}
+
+.gen-global-bar {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.gen-global-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.gen-global-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gen-global-label b {
+  color: var(--accent);
+}
+
+.gen-obs-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.gen-obs-input-wrap input[type="range"] {
+  flex: 1;
+}
+
+.gen-obs-input-wrap input[type="number"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.gen-seed-item {
+  flex: 0 0 auto;
+  min-width: auto;
 }
 
 .gen-grid {

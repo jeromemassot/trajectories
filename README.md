@@ -269,13 +269,14 @@ The application features a single-page web interface served directly by the zero
 
 ### 2. Interactive Synthetic Data Generator UI
 - **Dedicated Navigation Tab**: Access the complete data generator directly from the web interface.
-- **One-Click Presets**:
+- **One-Click Single-Line Presets**:
   - 🎯 *Standard Benchmark* (Seed 42, 30 entities, 306 observations)
   - ✨ *Clean / Zero Noise* (100% full dates, 0% typos, 0% dropped fields)
   - ⚡ *Challenging Noise* (High typos, off-by-one DOBs, 20% dropped fields)
   - 🚀 *High Mobility* (Enriched intra-state and inter-state relocation cohorts)
   - 🔬 *Small Test Set* (Fast 15-entity test population)
-- **Fine-Grained Levers**: Tweak entity counts per archetype, confounder pairs, PRNG seed (with `🎲 Randomize`), DOB noise formats, name typos, field drop rates, and digital token rates.
+- **Dataset Sizing & Global Controls**: Choose the total number of observations in the dataset (with synchronized slider and direct number input) and configure the PRNG seed with one-click randomization (`🎲 Randomize`) outside the archetype cards.
+- **Fine-Grained Levers**: Tweak entity counts per archetype, confounder pairs, DOB noise formats, name typos, field drop rates, and digital token rates.
 - **Live Dataset Generation**: Click **"⚡ Generate & Reload Dataset"** to invoke `POST /api/generate`. The backend generates the new population, recomputes candidate features, and updates all views (entities, map, pairs, observations, metrics) live without page reload.
 - **Generation Summary Dashboard**: Instant statistical breakdown of generated observation counts, archetypes, confounders, DOB quality distribution, and digital token coverage.
 

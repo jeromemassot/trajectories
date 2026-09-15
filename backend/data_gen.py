@@ -569,8 +569,72 @@ class Person:
                 active = phones
         return list(active)
 
+def plan_observation_counts(
+    target_obs,
+    n_neighborhood,
+    n_intrastate,
+    n_interstate,
+    n_household_pairs,
+    n_name_collision_pairs,
+    include_phone_reallocation,
+):
+    """Allocate exact observation counts across entities to reach target_obs."""
+    fixed_extra = (2 * n_household_pairs) + (2 * n_name_collision_pairs)
+    specs = []
+    for i in range(n_neighborhood):
+        specs.append(('cat1', i, 11.0, 2))
+    for i in range(n_intrastate):
+        n_cities = 3 if (i % 2 == 0) else 2
+        specs.append(('cat2', i, 11.5, n_cities))
+    for i in range(n_interstate):
+        specs.append(('cat3', i, 12.5, 3))
+    for i in range(2 * n_household_pairs):
+        specs.append(('hh', i, 8.0, 2))
+    for i in range(2 * n_name_collision_pairs):
+        specs.append(('coll', i, 7.0, 2))
+    if include_phone_reallocation:
+        specs.append(('phone_m', 0, 4.0, 2))
+        specs.append(('phone_c', 0, 4.0, 2))
+
+    if not specs:
+        return {}, 0
+
+    min_total = sum(s[3] for s in specs) + fixed_extra
+    effective_target = max(min_total, int(target_obs))
+    rem_target = effective_target - fixed_extra
+
+    base_sum = sum(s[2] for s in specs)
+    ratio = rem_target / base_sum
+
+    raw_counts = [max(s[3], int(round(s[2] * ratio))) for s in specs]
+    diff = rem_target - sum(raw_counts)
+
+    idx = 0
+    while diff > 0:
+        raw_counts[idx % len(raw_counts)] += 1
+        diff -= 1
+        idx += 1
+    while diff < 0:
+        max_val = max(raw_counts)
+        for j in range(len(raw_counts)):
+            if raw_counts[j] == max_val and raw_counts[j] > specs[j][3]:
+                raw_counts[j] -= 1
+                diff += 1
+                if diff == 0:
+                    break
+
+    alloc_map = {}
+    for (category, c_idx, _, _), count in zip(specs, raw_counts):
+        if category in ('phone_m', 'phone_c'):
+            alloc_map[category] = count
+        else:
+            alloc_map.setdefault(category, {})[c_idx] = count
+
+    return alloc_map, sum(raw_counts) + fixed_extra
+
 def make_population(
     seed=42,
+    target_obs=None,
     n_neighborhood=6,
     n_intrastate=6,
     n_interstate=6,
@@ -599,6 +663,30 @@ def make_population(
     people = []
     obs_rows = []
     obs_counter = 1
+
+    # Plan custom observation counts if requested and different from default benchmark
+    alloc_map = None
+    if target_obs is not None:
+        is_benchmark_shape = (
+            int(target_obs) == 306 and
+            seed == 42 and
+            n_neighborhood == 6 and
+            n_intrastate == 6 and
+            n_interstate == 6 and
+            n_household_pairs == 3 and
+            n_name_collision_pairs == 2 and
+            include_phone_reallocation
+        )
+        if not is_benchmark_shape:
+            alloc_map, _ = plan_observation_counts(
+                target_obs,
+                n_neighborhood,
+                n_intrastate,
+                n_interstate,
+                n_household_pairs,
+                n_name_collision_pairs,
+                include_phone_reallocation,
+            )
 
     def format_noisy_dob(dob, drop_dob=False, dob_noise=True):
         """Format a date of birth with realistic data collection noise:
@@ -690,7 +778,10 @@ def make_population(
         p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, home_addr_tuple=home_addr, token_rate=token_rate)
         people.append(p)
 
-        n_obs = random.randint(8, 14)
+        if alloc_map is not None and "cat1" in alloc_map:
+            n_obs = alloc_map["cat1"][i]
+        else:
+            n_obs = random.randint(8, 14)
         timeline_dates = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
 
         if employer_id and len(timeline_dates) > 2:
@@ -761,7 +852,10 @@ def make_population(
         p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, token_rate=token_rate)
         people.append(p)
 
-        n_obs = random.randint(9, 14)
+        if alloc_map is not None and "cat2" in alloc_map:
+            n_obs = alloc_map["cat2"][i]
+        else:
+            n_obs = random.randint(9, 14)
         timeline_dates = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
 
         if employer_id and len(timeline_dates) > 2:
@@ -843,7 +937,10 @@ def make_population(
         p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, token_rate=token_rate)
         people.append(p)
 
-        n_obs = random.randint(10, 15)
+        if alloc_map is not None and "cat3" in alloc_map:
+            n_obs = alloc_map["cat3"][i]
+        else:
+            n_obs = random.randint(10, 15)
         timeline_dates = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
 
         if employer_id and len(timeline_dates) > 2:
@@ -913,8 +1010,12 @@ def make_population(
             siblings.append(p)
 
         city_addrs = CITY_ADDRESSES[home_city]
-        for p in siblings:
-            n_obs = random.randint(6, 10)
+        for sib_idx, p in enumerate(siblings):
+            global_sib_idx = (_ * 2) + sib_idx
+            if alloc_map is not None and "hh" in alloc_map:
+                n_obs = alloc_map["hh"][global_sib_idx]
+            else:
+                n_obs = random.randint(6, 10)
             dts = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
             seq = sample_venue_sequence(city_addrs, len(dts))
             for s_idx, d in enumerate(dts):
@@ -948,8 +1049,12 @@ def make_population(
         pB = Person(first, last, sex, dobB, cityB, carrier=carrier, token_rate=token_rate)
         people += [pA, pB]
 
-        for p, cur_c in [(pA, cityA), (pB, cityB)]:
-            n_obs = random.randint(5, 9)
+        for p_sub_idx, (p, cur_c) in enumerate([(pA, cityA), (pB, cityB)]):
+            global_coll_idx = (_ * 2) + p_sub_idx
+            if alloc_map is not None and "coll" in alloc_map:
+                n_obs = alloc_map["coll"][global_coll_idx]
+            else:
+                n_obs = random.randint(5, 9)
             dts = sorted(rand_date_between(START_DATE, END_DATE) for _ in range(n_obs))
             city_addrs = CITY_ADDRESSES[cur_c]
             seq = sample_venue_sequence(city_addrs, len(dts))
@@ -982,9 +1087,14 @@ def make_population(
             (date(2018, 5, 1), [rand_phone("Boston, MA")]),
         ]
         people.append(p_realloc_early)
+        m_count = alloc_map["phone_m"] if (alloc_map is not None and "phone_m" in alloc_map) else 4
         boston_addrs = CITY_ADDRESSES["Boston, MA"]
-        b_seq = sample_venue_sequence(boston_addrs, 4)
-        for m_idx, d in enumerate([date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]):
+        b_seq = sample_venue_sequence(boston_addrs, m_count)
+        if m_count == 4:
+            m_dates = [date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]
+        else:
+            m_dates = sorted(rand_date_between(date(2016, 1, 1), date(2018, 4, 30)) for _ in range(m_count))
+        for m_idx, d in enumerate(m_dates):
             addr, lat, lon = b_seq[m_idx]
             new_obs(p_realloc_early.entity_id, "Marcus", "Vance", p_realloc_early.dob, d,
                     "Boston, MA", addr, lat, lon, p_realloc_early.household_id, None,
@@ -994,9 +1104,14 @@ def make_population(
         p_realloc_late = Person("Clara", "Oswald", "F", date(1994, 11, 23), "Denver, CO", carrier=carrier, token_rate=token_rate)
         p_realloc_late.phone_timeline = [(date(2021, 1, 1), [reallocated_number])]
         people.append(p_realloc_late)
+        c_count = alloc_map["phone_c"] if (alloc_map is not None and "phone_c" in alloc_map) else 4
         denver_addrs = CITY_ADDRESSES["Denver, CO"]
-        d_seq = sample_venue_sequence(denver_addrs, 4)
-        for c_idx, d in enumerate([date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]):
+        d_seq = sample_venue_sequence(denver_addrs, c_count)
+        if c_count == 4:
+            c_dates = [date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]
+        else:
+            c_dates = sorted(rand_date_between(date(2021, 1, 1), END_DATE) for _ in range(c_count))
+        for c_idx, d in enumerate(c_dates):
             addr, lat, lon = d_seq[c_idx]
             new_obs(p_realloc_late.entity_id, "Clara", "Oswald", p_realloc_late.dob, d,
                     "Denver, CO", addr, lat, lon, p_realloc_late.household_id, None,
