@@ -1449,8 +1449,8 @@
       });
     }
 
-    // Save dataset as JSON file
-    function saveDatasetAsJSON() {
+    // Save dataset as JSON file with native "Save As..." dialog
+    async function saveDatasetAsJSON() {
       const data = state.observations;
       if (!data || !data.length) {
         alert("No observations available to export.");
@@ -1460,6 +1460,33 @@
       const count = data.length;
       const filename = `trajectories_dataset_seed${seed}_${count}obs.json`;
       const jsonStr = JSON.stringify(data, null, 2);
+
+      // 1. Native File System Access API ("Save As..." file picker modal)
+      if (typeof window.showSaveFilePicker === "function") {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [
+              {
+                description: "JSON Dataset (*.json)",
+                accept: { "application/json": [".json"] },
+              },
+            ],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(jsonStr);
+          await writable.close();
+          return;
+        } catch (err) {
+          // If the user closed or cancelled the "Save As..." dialog, do nothing
+          if (err && err.name === "AbortError") {
+            return;
+          }
+          console.warn("showSaveFilePicker failed, falling back to download link:", err);
+        }
+      }
+
+      // 2. Fallback for browsers/contexts without showSaveFilePicker
       const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
