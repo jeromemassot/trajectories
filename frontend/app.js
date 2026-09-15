@@ -306,8 +306,9 @@
         f.dob_conflict ? "conflict" : f.dob_sim.toFixed(2),
         f.email_sim !== undefined ? f.email_sim.toFixed(2) : "–",
         f.phone_sim !== undefined ? f.phone_sim.toFixed(2) : "–",
-        f.spatiotemporal_kernel.toFixed(2), f.cooccurrence.toFixed(2),
-        f.velocity_kmh === null ? "–" : f.velocity_kmh,
+        f.spatial_locality !== undefined ? f.spatial_locality.toFixed(2) : (f.spatiotemporal_kernel !== undefined ? f.spatiotemporal_kernel.toFixed(2) : "–"),
+        f.cooccurrence.toFixed(2),
+        f.relocation_plausibility !== undefined ? f.relocation_plausibility.toFixed(2) : "–",
         status,
       ];
       cells.forEach((c) => {
@@ -453,17 +454,33 @@
       phonePill = (o1.phones?.length || o2.phones?.length) ? "Partial phone record" : "No phone logged";
     }
 
-    // 5. Spatio-temporal mobility & kinematics
+    // 5. Spatial locality & relocation transition
     const d1 = new Date(o1.timestamp);
     const d2 = new Date(o2.timestamp);
     const dtDays = Math.abs(Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
     const distKm = haversineKm(o1.lat, o1.lon, o2.lat, o2.lon);
     let mobilityText = "";
     let mobilityPill = "";
-    if (distKm != null) {
-      const vel = f.velocity_kmh != null ? f.velocity_kmh : (dtDays > 0 ? (distKm / Math.max(dtDays * 24, 0.5)).toFixed(1) : 0);
-      mobilityText = `${distKm} km traveled over ${dtDays} days (${vel} km/h, physically feasible)`;
-      mobilityPill = `${distKm} km in ${dtDays}d · ${vel} km/h`;
+
+    if (f.mobility_explanation) {
+      mobilityText = f.mobility_explanation;
+      if (f.hard_block) {
+        mobilityPill = "Simultaneous Conflict";
+      } else if (distKm != null && distKm <= 50) {
+        mobilityPill = `Local Area (${distKm.toFixed(1)} km · ${dtDays}d)`;
+      } else if (distKm != null) {
+        mobilityPill = `Relocation (${distKm.toFixed(0)} km · ${dtDays}d)`;
+      } else {
+        mobilityPill = "Location Missing";
+      }
+    } else if (distKm != null) {
+      if (distKm <= 50) {
+        mobilityText = `Local area: ${distKm.toFixed(1)} km apart over ${dtDays} days (habitual activity zone)`;
+        mobilityPill = `Local Area (${distKm.toFixed(1)} km · ${dtDays}d)`;
+      } else {
+        mobilityText = `Inter-city distance: ${distKm.toFixed(0)} km apart across ${dtDays} days`;
+        mobilityPill = `Relocation (${distKm.toFixed(0)} km · ${dtDays}d)`;
+      }
     } else {
       mobilityText = `${dtDays} days elapsed (location coordinates missing)`;
       mobilityPill = `${dtDays} days elapsed`;
@@ -497,7 +514,7 @@
         { label: "Date of Birth", val: dobPill },
         { label: "Email Anchor", val: emailPill },
         { label: "Phone Line", val: phonePill },
-        { label: "Transit & Speed", val: mobilityPill },
+        { label: "Mobility & Relocation", val: mobilityPill },
         { label: "Context Continuity", val: contextPill },
       ],
     };

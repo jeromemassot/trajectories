@@ -20,6 +20,7 @@ from resolution import (
     name_similarity,
     haversine_km,
     days_between,
+    evaluate_spatial_and_relocation,
     kinematic_check,
     spatiotemporal_kernel,
     dob_score,
@@ -80,33 +81,57 @@ class TestSpatioTemporalAndKinematics(unittest.TestCase):
         self.assertEqual(days_between("2020-01-01", "2020-01-05"), 4)
         self.assertEqual(days_between("2020-01-05", "2020-01-01"), 4)
 
-    def test_kinematic_check_anti_reflexive(self):
+    def test_simultaneous_presence_conflict(self):
         # Same day, different cities (NYC and Boston ~306km) -> hard block!
         o1 = {"lat": 40.7128, "lon": -74.0060, "timestamp": "2020-06-01"}
         o2 = {"lat": 42.3601, "lon": -71.0589, "timestamp": "2020-06-01"}
-        feasible, velocity, hard_block = kinematic_check(o1, o2)
+        locality, reloc, hard_block, expl = evaluate_spatial_and_relocation(o1, o2)
         self.assertTrue(hard_block)
+        self.assertEqual(locality, 0.0)
+        self.assertEqual(reloc, 0.0)
+        self.assertIn("Simultaneous presence conflict", expl)
 
-        # Same day, extreme distance (NYC to Detroit ~800km in <=30 min = 1600 km/h) -> infeasible velocity!
-        o3 = {"lat": 42.3314, "lon": -83.0458, "timestamp": "2020-06-01"}
-        feasible3, velocity3, hard_block3 = kinematic_check(o1, o3)
-        self.assertTrue(hard_block3)
-        self.assertFalse(feasible3)
-
-    def test_kinematic_check_consecutive_days(self):
-        # Consecutive days between NYC and Boston -> physically feasible!
+    def test_local_habitual_activity_area(self):
+        # Same neighborhood / metro area (< 50 km) -> high locality, plausibility 1.0, not blocked
         o1 = {"lat": 40.7128, "lon": -74.0060, "timestamp": "2020-06-01"}
-        o2 = {"lat": 42.3601, "lon": -71.0589, "timestamp": "2020-06-02"}
-        feasible, velocity, hard_block = kinematic_check(o1, o2)
-        self.assertFalse(hard_block)  # Not a hard anti-reflexive block
-        self.assertTrue(feasible)     # Feasible velocity (~12.7 km/h over 24h)
+        o2 = {"lat": 40.7484, "lon": -73.9857, "timestamp": "2020-06-05"}
+        locality, reloc, hard_block, expl = evaluate_spatial_and_relocation(o1, o2)
+        self.assertFalse(hard_block)
+        self.assertEqual(reloc, 1.0)
+        self.assertGreater(locality, 0.70)
+        self.assertIn("Local area", expl)
 
-    def test_spatiotemporal_kernel_missing_coordinates(self):
-        # Missing coordinates should return neutral baseline 0.4 on same day
+    def test_relocation_plausibility_short_vs_long_timeline(self):
+        # NYC to Boston (~306 km) across 3 days without anchor -> implausible rapid jump
+        o1 = {"lat": 40.7128, "lon": -74.0060, "timestamp": "2020-06-01"}
+        o2 = {"lat": 42.3601, "lon": -71.0589, "timestamp": "2020-06-04"}
+        _, reloc_short, hard_block_short, expl_short = evaluate_spatial_and_relocation(o1, o2)
+        self.assertFalse(hard_block_short)
+        self.assertEqual(reloc_short, 0.10)
+        self.assertIn("Implausible rapid inter-city jump", expl_short)
+
+        # NYC to Boston across 90 days -> plausible macro relocation
+        o3 = {"lat": 42.3601, "lon": -71.0589, "timestamp": "2020-09-01"}
+        _, reloc_long, hard_block_long, expl_long = evaluate_spatial_and_relocation(o1, o3)
+        self.assertFalse(hard_block_long)
+        self.assertEqual(reloc_long, 0.70)
+        self.assertIn("Plausible inter-city relocation", expl_long)
+
+        # NYC to Boston with shared employer or device token across 10 days -> supported by anchor
+        o4 = {"lat": 42.3601, "lon": -71.0589, "timestamp": "2020-06-11", "employer_id": "EMP-1"}
+        o1_emp = {**o1, "employer_id": "EMP-1"}
+        _, reloc_anchor, _, expl_anchor = evaluate_spatial_and_relocation(o1_emp, o4)
+        self.assertEqual(reloc_anchor, 0.80)
+        self.assertIn("supported by anchor continuity", expl_anchor)
+
+    def test_spatial_missing_coordinates(self):
+        # Missing coordinates return neutral baseline
         o1 = {"lat": None, "lon": None, "timestamp": "2020-01-01"}
         o2 = {"lat": 40.7128, "lon": -74.0060, "timestamp": "2020-01-01"}
-        k = spatiotemporal_kernel(o1, o2)
-        self.assertAlmostEqual(k, 0.4, places=3)
+        locality, reloc, hard_block, _ = evaluate_spatial_and_relocation(o1, o2)
+        self.assertFalse(hard_block)
+        self.assertEqual(locality, 0.5)
+        self.assertEqual(reloc, 0.7)
 
 
 class TestCooccurrenceAndDOB(unittest.TestCase):

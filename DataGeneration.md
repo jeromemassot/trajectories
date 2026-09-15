@@ -92,7 +92,7 @@ To ensure the entity resolution algorithm does not overfit to naive heuristics, 
 
 ---
 
-## 4. Kinematic Constraints & Anti-Oscillation Guarantees
+## 4. Spatial Locality, Relocation Plausibility & Anti-Oscillation Guarantees
 
 ### Non-Consecutive Venue Sampling
 Rather than alternating between two fixed coordinates, `sample_venue_sequence()` selects candidates from a pool of authentic city addresses, guaranteeing $c_{t} \neq c_{t-1}$:
@@ -112,10 +112,15 @@ def sample_venue_sequence(pool, n_samples):
 ### Post-Processing Duplicate Elimination
 Even when confounder common dates or life events inject specific addresses, a post-processing validation step iterates over each entity's chronological trajectory. If $c_{t} == c_{t-1}$, $c_t$ is reassigned to an alternative venue in that same city, ensuring **0.0% consecutive identical coordinates**.
 
-### Kinematic Feasibility
-The resolution engine enforces physical feasibility checks:
-- $v > 900\text{ km/h}$: Hard anti-reflexive block ($FP = 0$).
-- Same-day observations in different metropolitan areas ($d > 50\text{ km}$ on $\Delta t = 0$ days) are blocked from merging.
+### Human-Centric Spatial & Relocation Model
+Rather than calculating an artificial continuous velocity in km/h, the resolution engine evaluates human mobility across two distinct spatial regimes:
+1. **Local Habitual Activity Area ($d \le 50\text{ km}$)**:
+   - Evaluates whether successive sightings stay within the same local metropolitan/neighborhood commuting zone, with decaying affinity over distance and elapsed time.
+2. **Inter-City / Inter-State Relocation ($d > 50\text{ km}$)**:
+   - Relocations to different towns/states are rare over short timeframes. Sightings across distant cities separated by $< 14\text{ days}$ without anchor continuity are penalized as implausible rapid churn.
+   - Genuine relocations separated by adequate elapsed time ($\ge 21\text{ days}$, months, or years) or supported by anchor continuity (employer transfers, household moves, persistent device tokens) are recognized as plausible life transition events.
+3. **Simultaneous Presence Conflict (Hard Anti-Reflexive Block)**:
+   - Two sightings on the exact same date ($\Delta t = 0\text{ days}$) across different metropolitan areas ($d > 100\text{ km}$) cannot physically belong to the same person, triggering an absolute cannot-link constraint (`hard_block = True`).
 
 ---
 

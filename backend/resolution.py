@@ -147,9 +147,7 @@ def name_similarity(a, b):
 # ---------------------------------------------------------------------------
 
 EARTH_RADIUS_KM = 6371.0
-MAX_HUMAN_SPEED_KMH = 950.0   # ~ commercial flight cruise speed
-TAU_DAYS = 365.0              # temporal decay time-constant
-SIGMA_KM = 80.0               # spatial decay length-constant
+LOCAL_RADIUS_KM = 50.0            # metropolitan / commuting area boundary
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -166,40 +164,77 @@ def days_between(d1, d2):
     return abs((date.fromisoformat(d1) - date.fromisoformat(d2)).days)
 
 
-def kinematic_check(o1, o2):
-    """Returns (feasible: bool, velocity_kmh: float|None, hard_block: bool).
+def evaluate_spatial_and_relocation(o1, o2):
+    """Evaluates spatial relationship without an artificial km/h velocity calculation.
 
-    hard_block=True is the 'anti-reflexive' constraint from the brief: two
-    observations essentially simultaneous but far apart CANNOT belong to the
-    same person, regardless of how similar their attributes look. This is
-    injected as a permanent cannot-link, not just a low score.
+    Human beings travel via transportation modes (cars, flights, trains) and conduct
+    habitual daily routines within a local area, undergoing infrequent relocation events.
+    This model evaluates:
+      1. Simultaneous presence conflict: exact same date in distant cities -> hard block.
+      2. Local habitual affinity: sightings within the same metro/neighborhood (<= 50 km).
+      3. Relocation plausibility: inter-city moves (> 50 km) are evaluated over elapsed time
+         and anchor continuity (employer, household, device token).
+
+    Returns:
+        (spatial_locality: float [0, 1],
+         relocation_plausibility: float [0, 1],
+         hard_block: bool,
+         explanation: str)
     """
     if o1["lat"] is None or o2["lat"] is None:
-        return True, None, False
+        # Location unknown on one or both records -> neutral baseline
+        return 0.5, 0.7, False, "Location coordinates missing on one or both records"
+
     dist_km = haversine_km(o1["lat"], o1["lon"], o2["lat"], o2["lon"])
     dt_days = days_between(o1["timestamp"], o2["timestamp"])
-    dt_hours = max(dt_days * 24.0, 0.5)  # floor to avoid div-by-zero for same-day
-    velocity = dist_km / dt_hours
-    if dist_km < 5:
-        return True, velocity, False
-    # Anti-reflexive constraint: same calendar day, different city (>150km) is impossible.
-    # For dt_days >= 1, velocity check ensures travel feasibility based on elapsed time.
-    hard_block = dt_days == 0 and dist_km > 150
-    feasible = velocity <= MAX_HUMAN_SPEED_KMH
-    return feasible, velocity, hard_block
+
+    # 1. Hard anti-reflexive block: exact same calendar day, different metropolitan area (>100 km)
+    # An individual cannot physically attend two distant venues on the same date.
+    if dt_days == 0 and dist_km > 100:
+        return 0.0, 0.0, True, f"Simultaneous presence conflict: {dist_km:.0f} km apart on the exact same date"
+
+    # 2. Local habitual activity area (same town/metro <= 50 km)
+    if dist_km <= LOCAL_RADIUS_KM:
+        time_factor = math.exp(-dt_days / 180.0)
+        local_affinity = 0.5 + 0.5 * time_factor * math.exp(-dist_km / 25.0)
+        expl = f"Local area: {dist_km:.1f} km apart over {dt_days} days (habitual activity zone)"
+        return round(local_affinity, 3), 1.0, False, expl
+
+    # 3. Inter-city / inter-state distance (> 50 km)
+    # Relocation is rare over short timelines; plausible over multi-week/month/year timelines
+    has_anchor = bool(
+        (o1.get("persistent_token") and o1["persistent_token"] == o2.get("persistent_token")) or
+        (o1.get("household_id") and o1["household_id"] == o2.get("household_id")) or
+        (o1.get("employer_id") and o1["employer_id"] == o2.get("employer_id"))
+    )
+
+    if dt_days < 14 and not has_anchor:
+        # Rapid inter-city jump without anchor support -> low plausibility
+        plausibility = 0.10
+        expl = f"Implausible rapid inter-city jump: {dist_km:.0f} km in {dt_days} days without anchor continuity"
+    elif dt_days < 21 and not has_anchor:
+        plausibility = 0.40
+        expl = f"Short-timeline inter-city transition: {dist_km:.0f} km in {dt_days} days"
+    else:
+        # Sufficient elapsed time for a genuine life/career relocation
+        plausibility = 0.80 if has_anchor else 0.70
+        anchor_desc = " (supported by anchor continuity)" if has_anchor else ""
+        expl = f"Plausible inter-city relocation: {dist_km:.0f} km across {dt_days} days{anchor_desc}"
+
+    return 0.10, round(plausibility, 3), False, expl
+
+
+def kinematic_check(o1, o2):
+    """Backwards-compatibility alias for evaluate_spatial_and_relocation."""
+    locality, reloc, hard_block, expl = evaluate_spatial_and_relocation(o1, o2)
+    feasible = not hard_block and reloc >= 0.4
+    return feasible, None, hard_block
 
 
 def spatiotemporal_kernel(o1, o2):
-    """Exponential decay over (time, distance) - rewards habitual anchors.
-    When location is unknown, returns an uninformative neutral score (0.4)
-    scaled by temporal decay, so it does not add an unjustified spatial bonus.
-    """
-    dt_days = days_between(o1["timestamp"], o2["timestamp"])
-    time_factor = math.exp(-dt_days / TAU_DAYS)
-    if o1["lat"] is None or o2["lat"] is None:
-        return 0.4 * time_factor  # neutral baseline (aligns with the 0.4 logistic offset)
-    dist_km = haversine_km(o1["lat"], o1["lon"], o2["lat"], o2["lon"])
-    return time_factor * math.exp(-dist_km / SIGMA_KM)
+    """Backwards-compatibility alias returning spatial_locality."""
+    locality, _, _, _ = evaluate_spatial_and_relocation(o1, o2)
+    return locality
 
 
 # ---------------------------------------------------------------------------
@@ -333,9 +368,9 @@ DEFAULT_WEIGHTS = {
     "dob": 1.5,
     "email": 2.0,
     "phone": 1.8,
-    "spatiotemporal": 1.2,
+    "spatial_locality": 1.2,
+    "relocation_plausibility": 1.5,
     "cooccurrence": 2.2,
-    "kinematic_penalty": 4.0,      # multiplies down the combined score, not additive
     "dob_conflict_penalty": 5.0,   # ditto, for a confirmed DOB mismatch
 }
 
@@ -348,9 +383,8 @@ def extract_pair_features(o1, o2):
     dob_sim, dob_conflict = dob_score(o1, o2)
     em_sim, _ = email_score(o1, o2)
     ph_sim, _ = phone_score(o1, o2)
-    st_kernel = spatiotemporal_kernel(o1, o2)
     cooc = cooccurrence_score(o1, o2)
-    feasible, velocity, hard_block = kinematic_check(o1, o2)
+    locality, reloc_plaus, hard_block, mobility_expl = evaluate_spatial_and_relocation(o1, o2)
 
     return {
         "first_name_sim": round(first_sim, 3),
@@ -360,11 +394,11 @@ def extract_pair_features(o1, o2):
         "dob_conflict": dob_conflict,
         "email_sim": round(em_sim, 3),
         "phone_sim": round(ph_sim, 3),
-        "spatiotemporal_kernel": round(st_kernel, 3),
+        "spatial_locality": locality,
+        "relocation_plausibility": reloc_plaus,
         "cooccurrence": round(cooc, 3),
-        "kinematic_feasible": feasible,
-        "velocity_kmh": None if velocity is None else round(velocity, 1),
         "hard_block": hard_block,
+        "mobility_explanation": mobility_expl,
     }
 
 
@@ -376,31 +410,31 @@ def compute_pair_score(features, weights=None):
     dob_conflict = features["dob_conflict"]
     email_sim = features.get("email_sim", 0.5)
     phone_sim = features.get("phone_sim", 0.5)
-    st_kernel = features["spatiotemporal_kernel"]
+    spatial_locality = features.get("spatial_locality", 0.5)
+    reloc_plaus = features.get("relocation_plausibility", 0.7)
     cooc = features["cooccurrence"]
-    feasible = features["kinematic_feasible"]
-    velocity = features["velocity_kmh"]
     hard_block = features["hard_block"]
 
-    # weighted linear combination -> logistic squashing, as in the brief's
-    # P(O_i <-> O_j) = sigma(w_s Sim + w_t f_kinematic + w_c Context)
-    linear = (w["name"] * (name_sim - 0.5) +
-              w["dob"] * (dob_sim - 0.5) +
-              w.get("email", 2.0) * (email_sim - 0.5) +
-              w.get("phone", 1.8) * (phone_sim - 0.5) +
-              w["spatiotemporal"] * (st_kernel - 0.4) +
-              w["cooccurrence"] * cooc)
-    prob = 1.0 / (1.0 + math.exp(-linear))
+    if hard_block:
+        prob = 0.0
+    else:
+        # weighted linear combination -> logistic squashing:
+        # P(O_i <-> O_j) = sigma(w_s Sim + w_loc LocalAffinity + w_reloc RelocPlaus + w_c Context)
+        linear = (
+            w["name"] * (name_sim - 0.5) +
+            w["dob"] * (dob_sim - 0.5) +
+            w.get("email", 2.0) * (email_sim - 0.5) +
+            w.get("phone", 1.8) * (phone_sim - 0.5) +
+            w.get("spatial_locality", 1.2) * (spatial_locality - 0.5) +
+            w.get("relocation_plausibility", 1.5) * (reloc_plaus - 0.5) +
+            w["cooccurrence"] * cooc
+        )
+        prob = 1.0 / (1.0 + math.exp(-linear))
 
-    # Near-immutable attributes are disqualifying signals, not just one vote
-    # among many: a confirmed DOB mismatch or a kinematically impossible jump
-    # crushes the score multiplicatively.
-    if dob_conflict:
-        prob *= math.exp(-w["dob_conflict_penalty"])
-    if not feasible and velocity is not None:
-        # smoothly crush (not a step function), so "slightly too fast" != "teleportation"
-        overshoot = max(velocity / MAX_HUMAN_SPEED_KMH, 1.0)
-        prob *= math.exp(-(overshoot - 1.0) * w["kinematic_penalty"])
+        # Near-immutable attributes are disqualifying signals:
+        # a confirmed DOB mismatch crushes the score multiplicatively.
+        if dob_conflict:
+            prob *= math.exp(-w["dob_conflict_penalty"])
 
     return {
         "score": max(0.0, min(1.0, prob)),
@@ -412,10 +446,11 @@ def compute_pair_score(features, weights=None):
             "dob_conflict": features["dob_conflict"],
             "email_sim": features["email_sim"],
             "phone_sim": features["phone_sim"],
-            "spatiotemporal_kernel": features["spatiotemporal_kernel"],
+            "spatial_locality": features["spatial_locality"],
+            "relocation_plausibility": features["relocation_plausibility"],
             "cooccurrence": features["cooccurrence"],
-            "kinematic_feasible": features["kinematic_feasible"],
-            "velocity_kmh": features["velocity_kmh"],
+            "hard_block": features["hard_block"],
+            "mobility_explanation": features.get("mobility_explanation", ""),
         },
     }
 
