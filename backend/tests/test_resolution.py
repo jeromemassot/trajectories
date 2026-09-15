@@ -249,6 +249,66 @@ class TestEndToEndResolution(unittest.TestCase):
         self.assertEqual(metrics["n_predicted_clusters"], 30)
         self.assertEqual(metrics["n_true_entities"], 30)
 
+    def test_mobility_categories_and_trajectory_validity(self):
+        from collections import defaultdict
+
+        by_entity = defaultdict(list)
+        for o in self.observations:
+            by_entity[o["entity_id_truth"]].append(o)
+
+        # 1. No consecutive identical coordinates
+        consecutive_dupes = 0
+        for eid, items in by_entity.items():
+            items.sort(key=lambda x: x["timestamp"])
+            for i in range(len(items) - 1):
+                c1, c2 = items[i], items[i + 1]
+                if c1["lat"] is not None and c2["lat"] is not None:
+                    if c1["lat"] == c2["lat"] and c1["lon"] == c2["lon"]:
+                        consecutive_dupes += 1
+        self.assertEqual(consecutive_dupes, 0)
+
+        # 2. Category 1: Neighborhood Stayers (E001-E006) stay within < 10 km
+        for eid in [f"E{i:03d}" for i in range(1, 7)]:
+            items = by_entity[eid]
+            coords = [(x["lat"], x["lon"]) for x in items if x["lat"] is not None]
+            max_span = max(
+                haversine_km(lat1, lon1, lat2, lon2)
+                for i, (lat1, lon1) in enumerate(coords)
+                for lat2, lon2 in coords[i + 1 :]
+            )
+            self.assertLess(max_span, 10.0, f"Entity {eid} moved outside neighborhood: {max_span} km")
+
+        # 3. Category 2: Intra-State Movers (E007-E012) move between 2-3 cities within the same state
+        for eid in [f"E{i:03d}" for i in range(7, 13)]:
+            items = by_entity[eid]
+            cities = [x["city"] for x in items if x.get("city")]
+            states = set(c.split(", ")[1] for c in cities if ", " in c)
+            self.assertEqual(len(states), 1, f"Entity {eid} crossed states: {states}")
+            unique_cities = set(cities)
+            self.assertGreaterEqual(len(unique_cities), 2, f"Entity {eid} stayed in single city: {unique_cities}")
+
+        # 4. Category 3: Inter-State Migrators (E013-E018) migrate across 2 to 4 distinct states
+        for eid in [f"E{i:03d}" for i in range(13, 19)]:
+            items = by_entity[eid]
+            cities = [x["city"] for x in items if x.get("city")]
+            states = set(c.split(", ")[1] for c in cities if ", " in c)
+            self.assertGreaterEqual(len(states), 2, f"Entity {eid} did not cross states: {states}")
+
+        # 5. No unnatural 2-city ping-pong oscillation loops (A -> B -> A -> B)
+        for eid, items in by_entity.items():
+            cities_seq = [x["city"] for x in items if x.get("city")]
+            compressed = [cities_seq[0]]
+            for c in cities_seq[1:]:
+                if c != compressed[-1]:
+                    compressed.append(c)
+            for i in range(len(compressed) - 3):
+                is_ping_pong = (
+                    compressed[i] == compressed[i + 2]
+                    and compressed[i + 1] == compressed[i + 3]
+                    and compressed[i] != compressed[i + 1]
+                )
+                self.assertFalse(is_ping_pong, f"Entity {eid} exhibited 2-city ping-pong loop: {compressed}")
+
 
 if __name__ == "__main__":
     unittest.main()
