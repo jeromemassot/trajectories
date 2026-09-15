@@ -58,33 +58,63 @@ In real-world data systems:
 The resolution engine follows a four-stage pipeline designed for **accuracy, physical plausibility, and full explainability**.
 
 ```mermaid
-flowchart TD
-    subgraph S1 [Stage 1: Blocking]
-        A[Raw Observation Stream] --> B[Generate Phonetic, Token & DOB Keys]
-        B --> C[Candidate Observation Pairs]
+graph LR
+    subgraph S1 ["Stage 1: Blocking"]
+        A["Raw Observation Stream"] --> B["Generate Phonetic, Token and DOB Keys"]
+        B --> C["Candidate Observation Pairs"]
     end
 
-    subgraph S2 [Stage 2: Pairwise Evidence Scoring]
-        C --> D[Name Similarity Jaro-Winkler + Soundex + Nicknames]
-        C --> E[DOB Concordance & Conflict Detection]
-        C --> F[Spatio-Temporal Continuity Kernel]
-        C --> G[Co-occurrence Context Household, Employer, Token]
-        D & E & F & G --> H[Weighted Logistic Probability]
-        H --> I[Multiplicative Kinematic & DOB Conflict Penalties]
+    subgraph S2 ["Stage 2: Pairwise Evidence Scoring"]
+        D1["Name Similarity: Jaro-Winkler, Soundex, Nicknames"]
+        D2["DOB Concordance and Conflict Detection"]
+        D3["Spatio-Temporal Continuity Kernel"]
+        D4["Co-occurrence Context: Household, Employer, Token"]
+        D1 --> E["Weighted Logistic Probability"]
+        D2 --> E
+        D3 --> E
+        D4 --> E
+        E --> F["Kinematic and DOB Conflict Penalties"]
     end
 
-    subgraph S3 [Stage 3: Constrained Clustering]
-        I --> J[Sort Edges by Descending Probability]
-        J --> K{Transitive Cannot-Link Check}
-        K -->|Conflict: Teleportation or DOB Mismatch| L[Reject Edge Blocked]
-        K -->|Compatible| M[Union-Find Merge]
-        M --> N[Resolved Trajectory Clusters]
+    subgraph S3 ["Stage 3: Constrained Clustering"]
+        G["Sort Edges by Descending Probability"] --> H{"Transitive Cannot-Link Check"}
+        H -->|Conflict| I["Reject Edge: Blocked"]
+        H -->|Compatible| J["Union-Find Merge"]
+        J --> K["Resolved Trajectory Clusters"]
     end
 
-    subgraph S4 [Stage 4: Evaluation & UI]
-        N --> O[Dynamic Leaflet Trajectory Map]
-        N --> P[O N Contingency Metric Evaluation]
+    subgraph S4 ["Stage 4: Evaluation and UI"]
+        L["Dynamic Leaflet Trajectory Map"]
+        M["Contingency Metric Evaluation"]
     end
+
+    C --> D1
+    C --> D2
+    C --> D3
+    C --> D4
+    F --> G
+    K --> L
+    K --> M
+
+    style A fill:#e7f5ff,stroke:#1971c2,stroke-width:1.5px
+    style B fill:#e7f5ff,stroke:#1971c2,stroke-width:1.5px
+    style C fill:#d0ebff,stroke:#1971c2,stroke-width:2px
+
+    style D1 fill:#f3f0ff,stroke:#6741d9,stroke-width:1.5px
+    style D2 fill:#f3f0ff,stroke:#6741d9,stroke-width:1.5px
+    style D3 fill:#f3f0ff,stroke:#6741d9,stroke-width:1.5px
+    style D4 fill:#f3f0ff,stroke:#6741d9,stroke-width:1.5px
+    style E fill:#e5dbff,stroke:#5f3dc4,stroke-width:1.5px
+    style F fill:#ffe3e3,stroke:#c92a2a,stroke-width:1.5px
+
+    style G fill:#fff4e6,stroke:#d9480f,stroke-width:1.5px
+    style H fill:#fff9db,stroke:#f08c00,stroke-width:1.5px
+    style I fill:#ffe3e3,stroke:#c92a2a,stroke-width:1.5px
+    style J fill:#d3f9d8,stroke:#2b8a3e,stroke-width:1.5px
+    style K fill:#b2f2bb,stroke:#2b8a3e,stroke-width:2px
+
+    style L fill:#e6fcf5,stroke:#0ca678,stroke-width:1.5px
+    style M fill:#e6fcf5,stroke:#0ca678,stroke-width:1.5px
 ```
 
 ### Stage 1: Blocking (Smart Candidate Filtering)
