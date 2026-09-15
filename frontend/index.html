@@ -378,10 +378,10 @@
         </label>
       </div>
 
-      <!-- Card 4: Digital Footprints & Storage -->
+      <!-- Card 4: Digital Footprints & Identity -->
       <div class="gen-card">
         <h3>4. Digital Identity &amp; Persistence</h3>
-        <p class="hint">Configure hardware/ad token adoption, employer anchors, and file saving.</p>
+        <p class="hint">Configure hardware/ad token adoption and employer identity anchors.</p>
 
         <label class="slider-row">
           <span>Persistent hardware / ad token rate <b id="gen_token_rate_val">60%</b></span>
@@ -392,13 +392,6 @@
           <span>Employer ID &amp; work email assignment <b id="gen_employer_rate_val">70%</b></span>
           <input type="range" id="gen_employer_rate" min="0" max="1.0" step="0.05" value="0.70" />
         </label>
-
-        <div style="margin-top: 24px; padding-top: 14px; border-top: 1px dashed var(--border);">
-          <label class="checkbox-row">
-            <input type="checkbox" id="gen_save_to_disk" checked />
-            <span>Save generated observations to disk (<code>mock_observations.json</code>)</span>
-          </label>
-        </div>
       </div>
     </div>
 
@@ -406,6 +399,7 @@
     <div class="gen-actions-bar">
       <div class="gen-actions-left">
         <button type="button" id="genGenerateBtn" class="gen-btn-primary">⚡ Generate &amp; Reload Dataset</button>
+        <button type="button" id="genSaveJsonBtn" class="gen-btn-secondary" title="Save the current dataset as a JSON file">💾 Save Dataset as JSON</button>
         <button type="button" id="genResetBtn" class="gen-btn-secondary">↺ Reset Generator Defaults</button>
       </div>
       <div class="gen-actions-right">
@@ -421,6 +415,7 @@
           <span>Dataset Generation Summary</span>
         </div>
         <div class="gen-summary-actions">
+          <button type="button" class="gen-link-btn" id="genSummarySaveBtn">💾 Save as JSON</button>
           <button type="button" class="gen-link-btn" id="genGoEntitiesBtn">View Resolved Clusters →</button>
           <button type="button" class="gen-link-btn" id="genGoMapBtn">View Trajectory Map →</button>
         </div>

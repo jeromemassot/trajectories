@@ -87,6 +87,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"observations": OBSERVATIONS})
             return
 
+        if route == "/api/export":
+            body = json.dumps(OBSERVATIONS, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Disposition", 'attachment; filename="trajectories_observations.json"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # static frontend
         if route == "/":
             route = "/index.html"
@@ -157,8 +167,8 @@ class Handler(BaseHTTPRequestHandler):
                 OBSERVATIONS = new_obs
                 CANDIDATE_FEATURES = extract_all_candidate_features(OBSERVATIONS)
 
-                # Save to disk if requested (defaults to True)
-                if body.get("save_to_disk", True):
+                # Save to disk only if explicitly requested (defaults to False)
+                if body.get("save_to_disk", False):
                     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
                     with open(DATA_PATH, "w") as f:
                         json.dump(OBSERVATIONS, f, indent=2)

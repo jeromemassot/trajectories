@@ -278,6 +278,7 @@ The application features a single-page web interface served directly by the zero
 - **Dataset Sizing & Global Controls**: Choose the total number of observations in the dataset (with synchronized slider and direct number input) and configure the PRNG seed with one-click randomization (`🎲 Randomize`) outside the archetype cards.
 - **Fine-Grained Levers**: Tweak entity counts per archetype, confounder pairs, DOB noise formats, name typos, field drop rates, and digital token rates.
 - **Live Dataset Generation**: Click **"⚡ Generate & Reload Dataset"** to invoke `POST /api/generate`. The backend generates the new population, recomputes candidate features, and updates all views (entities, map, pairs, observations, metrics) live without page reload.
+- **Export Dataset as JSON**: Click **"💾 Save Dataset as JSON"** to download the active generated observations directly to your computer as a formatted JSON file.
 - **Generation Summary Dashboard**: Instant statistical breakdown of generated observation counts, archetypes, confounders, DOB quality distribution, and digital token coverage.
 
 ### 3. Dynamic Interactive Trajectory Map (Leaflet.js)

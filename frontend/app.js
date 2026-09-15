@@ -1449,6 +1449,37 @@
       });
     }
 
+    // Save dataset as JSON file
+    function saveDatasetAsJSON() {
+      const data = state.observations;
+      if (!data || !data.length) {
+        alert("No observations available to export.");
+        return;
+      }
+      const seed = $("#gen_seed")?.value || 42;
+      const count = data.length;
+      const filename = `trajectories_dataset_seed${seed}_${count}obs.json`;
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    const saveBtn = $("#genSaveJsonBtn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", saveDatasetAsJSON);
+    }
+    const summarySaveBtn = $("#genSummarySaveBtn");
+    if (summarySaveBtn) {
+      summarySaveBtn.addEventListener("click", saveDatasetAsJSON);
+    }
+
     // Quick navigation buttons from summary
     const goEntities = $("#genGoEntitiesBtn");
     if (goEntities) {
@@ -1493,7 +1524,6 @@
           drop_email_rate: parseFloat($("#gen_drop_email_rate")?.value || 0.08),
           token_rate: parseFloat($("#gen_token_rate")?.value || 0.60),
           employer_rate: parseFloat($("#gen_employer_rate")?.value || 0.70),
-          save_to_disk: $("#gen_save_to_disk")?.checked ?? true,
           threshold: state.threshold,
           weights: state.weights,
           use_persistent_tokens: state.usePersistentTokens,
