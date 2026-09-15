@@ -374,33 +374,82 @@ button:hover { filter: brightness(1.08); }
   }
 }
 
+/* Observations Section below Map View */
+.map-observations-section {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .map-explanation-card {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  max-width: 440px;
-  width: calc(100% - 32px);
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
-  z-index: 1000;
-  padding: 12px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  padding: 14px 16px;
   animation: fadeIn 0.2s ease-out;
 }
 :root[data-theme="dark"] .map-explanation-card {
-  background: rgba(28, 31, 38, 0.94);
+  background: var(--panel);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .map-explanation-card {
-    background: rgba(28, 31, 38, 0.94);
+    background: var(--panel);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   }
 }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.map-obs-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.map-obs-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.map-obs-title-group h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.map-obs-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.map-obs-hint {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+#mapObsTable tbody tr {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+#mapObsTable tbody tr:hover {
+  background: var(--bg);
+}
+#mapObsTable tbody tr.active-obs-row {
+  background: var(--accent-soft) !important;
+  font-weight: 600;
+}
+#mapObsTable tbody tr.active-obs-row td:first-child {
+  border-left: 3px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .explanation-card-header {

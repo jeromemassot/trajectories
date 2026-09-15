@@ -134,6 +134,11 @@
 
     <div class="map-wrapper-relative">
       <div id="mapContainer"></div>
+    </div>
+
+    <!-- Observations Data Below Map View -->
+    <div class="map-observations-section" id="mapObservationsSection">
+      <!-- 1. Active Sighting & Connection Rationale Card -->
       <div id="mapExplanationCard" class="map-explanation-card" hidden>
         <div class="explanation-card-header">
           <div class="explanation-card-title">
@@ -142,10 +147,48 @@
           </div>
           <div class="explanation-header-right">
             <span id="explanationScoreBadge" class="explanation-score-badge">P = –</span>
-            <button type="button" id="explanationCloseBtn" class="explanation-close-btn" title="Close explanation overlay">✕</button>
+            <button type="button" id="explanationCloseBtn" class="explanation-close-btn" title="Close connection rationale" hidden>✕</button>
           </div>
         </div>
         <div id="explanationBody" class="explanation-card-body"></div>
+      </div>
+
+      <!-- 2. Entity Trajectory Observations Table -->
+      <div class="map-observations-table-wrap">
+        <div class="map-obs-table-header">
+          <div class="map-obs-title-group">
+            <h3 id="mapObsTableTitle">Entity Observations Data</h3>
+            <span id="mapObsCountBadge" class="badge">0 observations</span>
+          </div>
+          <div class="map-obs-filter-group">
+            <label class="checkbox-row" style="margin: 0; font-size: 0.8rem;">
+              <input type="checkbox" id="mapObsFilterEntity" checked />
+              Show selected entity only
+            </label>
+            <span class="map-obs-hint">Click any observation to jump on map</span>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height: 380px; overflow-y: auto;">
+          <table id="mapObsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Obs ID</th>
+                <th>Timestamp</th>
+                <th>City &amp; Address</th>
+                <th>Name</th>
+                <th>DOB</th>
+                <th>Emails</th>
+                <th>Phones</th>
+                <th>Household</th>
+                <th>Employer</th>
+                <th>Token</th>
+                <th class="truth-col">Truth</th>
+              </tr>
+            </thead>
+            <tbody id="mapObsBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>

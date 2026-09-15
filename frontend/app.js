@@ -153,12 +153,20 @@
       state.showTruth = e.target.checked;
       renderEntities();
       renderObservationsTable();
+      renderMapObservationsTable();
     });
 
     $("#pairMinScore").addEventListener("input", renderPairs);
     $("#pairOnlyLinked").addEventListener("change", renderPairs);
     $("#pairOnlyBlocked").addEventListener("change", renderPairs);
     $("#mapEntitySelect").addEventListener("change", renderMap);
+
+    const mapObsFilter = $("#mapObsFilterEntity");
+    if (mapObsFilter) {
+      mapObsFilter.addEventListener("change", () => {
+        renderMapObservationsTable();
+      });
+    }
   }
 
   let resolveTimer = null;
@@ -737,6 +745,9 @@
     if (centerMap && state.map && activeObs) {
       updateMapCameraForStep(stepIdx);
     }
+
+    // 7. Synchronize active observation row in observations table below map
+    highlightActiveMapObsRow(stepIdx);
   }
 
   const RELOCATION_THRESHOLD_KM = 80;
@@ -812,6 +823,131 @@
     }
   }
 
+  function renderMapObservationsTable() {
+    const body = $("#mapObsBody");
+    if (!body) return;
+    body.innerHTML = "";
+
+    const clusterId = $("#mapEntitySelect") ? $("#mapEntitySelect").value : null;
+    const entity = state.result && state.result.entities
+      ? state.result.entities.find((e) => e.cluster_id === clusterId)
+      : null;
+
+    const filterEntity = $("#mapObsFilterEntity") ? $("#mapObsFilterEntity").checked : true;
+    const countBadge = $("#mapObsCountBadge");
+    const titleEl = $("#mapObsTableTitle");
+
+    const trajectoryObs = timelineState.obsList || [];
+    const obsIdToWaypoint = new Map();
+    trajectoryObs.forEach((o, idx) => {
+      obsIdToWaypoint.set(o.observation_id, idx);
+    });
+
+    let displayList = [];
+    if (filterEntity) {
+      displayList = trajectoryObs;
+      if (titleEl && entity) {
+        titleEl.textContent = `${entity.cluster_id} — Observations Data`;
+      }
+      if (countBadge) {
+        countBadge.textContent = `${displayList.length} observations`;
+      }
+    } else {
+      displayList = state.observations
+        .slice()
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      if (titleEl) {
+        titleEl.textContent = "All Observations Feed (Filtered by Map Entity)";
+      }
+      if (countBadge) {
+        countBadge.textContent = `${displayList.length} total (${trajectoryObs.length} in route)`;
+      }
+    }
+
+    if (displayList.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 12;
+      td.style.textAlign = "center";
+      td.style.color = "var(--muted)";
+      td.style.padding = "16px";
+      td.textContent = "No observations to display for this selection.";
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    displayList.forEach((o) => {
+      const tr = document.createElement("tr");
+      tr.dataset.obsId = o.observation_id;
+
+      const wpIdx = obsIdToWaypoint.get(o.observation_id);
+      const isEntityObs = wpIdx !== undefined;
+
+      if (isEntityObs) {
+        tr.dataset.stepIdx = wpIdx;
+        tr.title = `Waypoint #${wpIdx + 1} — Click to focus on map`;
+      } else {
+        tr.style.opacity = "0.55";
+        tr.title = `External observation (Entity: ${o.entity_id_truth || "other"})`;
+      }
+
+      const emailsStr = o.emails && o.emails.length ? o.emails.join(", ") : "–";
+      const phonesStr = o.phones && o.phones.length ? o.phones.join(", ") : "–";
+      const locationStr = o.address ? `${o.city} · ${o.address}` : (o.city || "–");
+
+      const cells = [
+        isEntityObs ? `#${wpIdx + 1}` : "–",
+        o.observation_id,
+        o.timestamp,
+        locationStr,
+        `${o.first_name} ${o.last_name}`,
+        o.dob || "–",
+        emailsStr,
+        phonesStr,
+        o.household_id || "–",
+        o.employer_id || "–",
+        o.persistent_token ? o.persistent_token.slice(0, 8) : "–",
+        state.showTruth ? o.entity_id_truth : "hidden",
+      ];
+
+      cells.forEach((c) => {
+        const td = document.createElement("td");
+        td.textContent = c;
+        tr.appendChild(td);
+      });
+
+      if (isEntityObs) {
+        tr.addEventListener("click", () => {
+          seekTimeline(wpIdx);
+        });
+      }
+
+      frag.appendChild(tr);
+    });
+
+    body.appendChild(frag);
+    highlightActiveMapObsRow(timelineState.step);
+  }
+
+  function highlightActiveMapObsRow(stepIdx) {
+    const body = $("#mapObsBody");
+    if (!body) return;
+
+    const rows = body.querySelectorAll("tr");
+    rows.forEach((r) => r.classList.remove("active-obs-row"));
+
+    const activeObs = timelineState.obsList && timelineState.obsList[stepIdx];
+    if (!activeObs) return;
+
+    const targetRow = body.querySelector(`tr[data-obs-id="${activeObs.observation_id}"]`);
+    if (targetRow) {
+      targetRow.classList.add("active-obs-row");
+      targetRow.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
   function populateMapSelect() {
     const select = $("#mapEntitySelect");
     const prev = select.value;
@@ -879,6 +1015,9 @@
       }
       const card = $("#mapExplanationCard");
       if (card) card.hidden = true;
+      timelineState.obsList = [];
+      currentEntityLatLngs = [];
+      renderMapObservationsTable();
       return;
     }
 
@@ -889,6 +1028,7 @@
     }
     timelineState.obsList = obs;
     currentEntityLatLngs = obs.map((o) => [o.lat, o.lon]);
+    renderMapObservationsTable();
 
     // 2. Build individual consecutive line segments with explainability tooltips
     for (let k = 0; k < obs.length - 1; k++) {
