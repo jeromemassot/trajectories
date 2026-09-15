@@ -267,22 +267,71 @@ def dob_score(o1, o2):
 TAU_PHONE_DAYS = 730.0  # ~2 years carrier reallocation / churn scale
 
 
-def email_score(o1, o2):
-    """Evaluates email address agreement.
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "yahoo.com", "outlook.com", "icloud.com",
+    "hotmail.com", "aol.com", "mail.com", "proton.me", "protonmail.com", "fastmail.com"
+}
 
-    Emails are accumulative identifiers over an individual's timeline.
-    Returns (score: float in [0, 1], match_type: str).
-    - If either record has no emails: 0.5 (neutral evidence, missing).
-    - If there is at least one shared email: 1.0 (strong identity anchor).
-    - If both have emails but they are completely disjoint: 0.2 (mild negative).
+
+def parse_email(em):
+    """Normalize local part and identify domain category (personal vs corporate)."""
+    em = (em or "").lower().strip()
+    if "@" not in em:
+        return em, "", False
+    user, dom = em.split("@", 1)
+    norm_user = user.replace(".", "").replace("_", "").replace("-", "")
+    is_personal = dom in PERSONAL_EMAIL_DOMAINS
+    return norm_user, dom, is_personal
+
+
+def email_score(o1, o2):
+    """Evaluates email address agreement and logical evolution across an individual's timeline.
+
+    Rather than penalizing individuals when they provide a personal email on one record
+    and their corporate work email on another (or when migrating from Yahoo to Gmail),
+    this evaluator recognizes:
+      - exact_match (1.0): shared email address.
+      - personal_work_pair (0.88): one personal and one corporate email sharing the same normalized username.
+      - provider_migration (0.85): both personal emails on different providers with matching username.
+      - alias_variant (0.85): same domain with minor alias variation.
+      - missing (0.50): unrecorded on either observation.
+      - disjoint (0.20): incompatible usernames across distinct providers.
     """
     e1 = {e.lower().strip() for e in o1.get("emails", []) if e}
     e2 = {e.lower().strip() for e in o2.get("emails", []) if e}
     if not e1 or not e2:
         return 0.5, "missing"
     if e1 & e2:
-        return 1.0, "match"
-    return 0.2, "disjoint"
+        return 1.0, "exact_match"
+
+    best_score = 0.20
+    best_status = "disjoint"
+
+    for a in e1:
+        u1, d1, p1 = parse_email(a)
+        for b in e2:
+            u2, d2, p2 = parse_email(b)
+            u_sim = jaro_winkler(u1, u2) if (u1 and u2) else 0.0
+
+            if u_sim >= 0.90:
+                if p1 != p2:
+                    # One personal email and one corporate work email with matching username
+                    score = 0.88
+                    status = "personal_work_pair"
+                elif d1 != d2:
+                    # Both personal emails on different providers (e.g. Yahoo -> Gmail migration)
+                    score = 0.85
+                    status = "provider_migration"
+                else:
+                    # Same provider with minor username formatting
+                    score = 0.85
+                    status = "alias_variant"
+
+                if score > best_score:
+                    best_score = score
+                    best_status = status
+
+    return best_score, best_status
 
 
 def phone_score(o1, o2):
@@ -336,6 +385,9 @@ def blocking_keys(o):
     for em in o.get("emails", []):
         if em:
             keys.add(("email", em.lower().strip()))
+            norm_u, _, _ = parse_email(em)
+            if len(norm_u) >= 5:
+                keys.add(("email_user", norm_u))
     for ph in o.get("phones", []):
         if ph:
             keys.add(("phone", ph.strip()))

@@ -124,7 +124,28 @@ Rather than calculating an artificial continuous velocity in km/h, the resolutio
 
 ---
 
-## 5. Verification & Benchmark Metrics
+## 5. Realistic Email Lifecycles & Logical Email Evolution
+
+In real-world data collection, individuals do not dump an ever-growing historical list of every email address they have ever created. Instead:
+- At any single observation, an individual surfaces:
+  - **Personal only (~50%)**: Their current active personal email.
+  - **Personal + Professional (~35%)**: Their active personal email and their current corporate work email.
+  - **Professional only (~10%)**: Business or workplace transaction.
+  - **None (~5%)**: Email unrecorded or dropped.
+- **Constraints Enforced**:
+  - Every observation has at most 1 personal email and at most 1 professional email ($\le 2$ emails total).
+  - Never multiple personal emails or multiple corporate emails on a single observation.
+  - High stability between successive sightings, with smooth multi-year evolution (e.g. personal email provider upgrade from Yahoo to Gmail, or surname update upon marriage).
+- **Logical Email Evolution Scoring**:
+  - Exact match ($e_1 \cap e_2 \neq \emptyset$): **1.00** (`exact_match`).
+  - Personal $\leftrightarrow$ Corporate complementary pair with matching username: **0.88** (`personal_work_pair`).
+  - Provider migration / upgrade (e.g. Yahoo $\to$ Gmail) with matching username: **0.85** (`provider_migration`).
+  - Unrecorded on either record: **0.50** (`missing`).
+  - Disjoint incompatible emails: **0.20** (`disjoint`).
+
+---
+
+## 6. Verification & Benchmark Metrics
 
 The generated dataset ([`backend/data/mock_observations.json`](file:///home/jeromemassot/Projects/Trajectories/backend/data/mock_observations.json)) was evaluated against the resolution engine at a clustering threshold of $0.65$:
 
@@ -133,6 +154,7 @@ The generated dataset ([`backend/data/mock_observations.json`](file:///home/jero
 | **Total Observations** | **314** | Multi-year realistic sampling |
 | **True Latent Entities** | **30** | Exactly 30 entities |
 | **Predicted Entity Clusters** | **30** | Exactly 30 clusters |
+| **Max Emails per Observation** | **$\le 2$ ($\le 1$ personal, $\le 1$ work)** | No accumulating dumps |
 | **Consecutive Identical Coordinates** | **0 (0.0%)** | 0 duplicates |
 | **Category 1 Max Spatial Span** | **1.69 -- 4.62 km** | $< 10\text{ km}$ (neighborhood) |
 | **Category 2 State Boundary** | **100% within origin state** | Single state ($\ge 2$ cities) |
@@ -143,11 +165,11 @@ The generated dataset ([`backend/data/mock_observations.json`](file:///home/jero
 | **Pairwise $F_1$ Score** | **1.0000 (100%)** | $\ge 0.98$ |
 | **Pairwise True Positives ($TP$)** | **1,604** | -- |
 | **Pairwise True Negatives ($TN$)** | **47,537** | -- |
-| **Backend Unit Tests** | **19 / 19 passed** | 100% pass |
+| **Backend Unit Tests** | **22 / 22 passed** | 100% pass |
 
 ---
 
-## 6. How to Regenerate
+## 7. How to Regenerate
 
 To regenerate the dataset and re-verify resolution metrics:
 

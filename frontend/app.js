@@ -427,13 +427,17 @@
       dobPill = `Conflict: ${o1.dob} vs ${o2.dob}`;
     }
 
-    // 3. Email anchor
+    // 3. Email anchor & evolution
     const sharedEmails = (o1.emails || []).filter((e) => (o2.emails || []).includes(e));
     let emailText = "";
     let emailPill = "";
     if (sharedEmails.length) {
       emailText = `shared email address (${sharedEmails.join(", ")})`;
       emailPill = sharedEmails.join(", ");
+    } else if (f.email_sim >= 0.85 && o1.emails?.length && o2.emails?.length) {
+      const evolutionType = f.email_sim >= 0.88 ? "Personal/Work Pair" : "Provider Migration";
+      emailText = `logical email evolution (${evolutionType}: ${o1.emails[0]} ↔ ${o2.emails[0]})`;
+      emailPill = `${evolutionType} (${(f.email_sim * 100).toFixed(0)}%)`;
     } else if (o1.emails?.length && o2.emails?.length) {
       emailText = "different email addresses";
       emailPill = "Disjoint aliases";

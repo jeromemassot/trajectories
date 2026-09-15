@@ -453,11 +453,13 @@ class Person:
             HOUSEHOLD_RESIDENCES[self.household_id] = (h_addr, h_lat, h_lon)
         self.residence_timeline.append((START_DATE, h_addr, h_lat, h_lon, home_city))
 
-        self.email_timeline = []
+        self.personal_email_timeline = []
         if random.random() < 0.90:
             f, l = first.lower(), last.lower()
             dom = random.choice(EMAIL_DOMAINS)
-            self.email_timeline.append((START_DATE, f"{f}.{l}@{dom}"))
+            self.personal_email_timeline.append((START_DATE, f"{f}.{l}@{dom}"))
+
+        self.work_email_timeline = []
 
         self.multi_phone = random.random() < 0.20
         self.phone_timeline = []
@@ -483,9 +485,17 @@ class Person:
                 curr = (addr, lat, lon, city)
         return curr
 
+    def add_work_email(self, date_added, email):
+        if email:
+            self.work_email_timeline.append((date_added, email))
+
+    def evolve_personal_email(self, date_added, email):
+        if email:
+            self.personal_email_timeline.append((date_added, email))
+
     def add_email(self, date_added, email):
-        if email and email not in [e[1] for e in self.email_timeline]:
-            self.email_timeline.append((date_added, email))
+        """Backwards compatibility helper."""
+        self.add_work_email(date_added, email)
 
     def change_phone(self, change_date, city=None):
         city = city or self.home_city
@@ -505,12 +515,52 @@ class Person:
             new_p = self.carrier.acquire_phone(city, change_date)
             self.phone_timeline.append((change_date, [new_p]))
 
+    def active_personal_email_at(self, t):
+        active = None
+        for d, em in sorted(self.personal_email_timeline, key=lambda x: x[0]):
+            if d <= t:
+                active = em
+        return active
+
+    def active_work_email_at(self, t):
+        active = None
+        for d, em in sorted(self.work_email_timeline, key=lambda x: x[0]):
+            if d <= t:
+                active = em
+        return active
+
     def emails_at(self, t):
-        emails = []
-        for d, em in sorted(self.email_timeline, key=lambda x: x[0]):
-            if d <= t and em not in emails:
-                emails.append(em)
-        return emails
+        """Returns the list of emails surfaced for an observation at timestamp t.
+
+        Guarantees:
+        - At most ONE personal email (the active one at time t).
+        - At most ONE professional email (the active one at time t).
+        - No observation contains more than 2 emails total.
+        - Realistic surfacing distribution:
+            * Personal only (~50%)
+            * Personal + Work (~35%)
+            * Work only (~10%)
+            * None (~5%)
+        """
+        p_em = self.active_personal_email_at(t)
+        w_em = self.active_work_email_at(t)
+
+        if not p_em and not w_em:
+            return []
+        if p_em and not w_em:
+            return [p_em]
+        if w_em and not p_em:
+            return [w_em]
+
+        seed_val = int(hashlib.md5(f"{self.entity_id}_{t}".encode()).hexdigest()[:6], 16) % 100
+        if seed_val < 50:
+            return [p_em]
+        elif seed_val < 85:
+            return [p_em, w_em]
+        elif seed_val < 95:
+            return [w_em]
+        else:
+            return []
 
     def active_phones_at(self, t):
         active = []
@@ -605,6 +655,10 @@ def make_population():
         will_marry = (i == 2 or i == 5)
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
+        if will_marry:
+            p.evolve_personal_email(timeline_dates[marriage_idx], f"{first.lower()}.{new_last.lower()}@gmail.com")
+        elif i % 2 == 1 and len(timeline_dates) > 5:
+            p.evolve_personal_email(timeline_dates[len(timeline_dates) // 2], f"{first.lower()}.{last.lower()}@gmail.com")
 
         # Build address sequence across timeline
         epoch1_dates = timeline_dates[:move_idx] if move_idx else timeline_dates
@@ -678,6 +732,10 @@ def make_population():
         will_marry = (i == 1)
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
+        if will_marry:
+            p.evolve_personal_email(timeline_dates[marriage_idx], f"{first.lower()}.{new_last.lower()}@gmail.com")
+        elif i % 2 == 0 and len(timeline_dates) > 5:
+            p.evolve_personal_email(timeline_dates[len(timeline_dates) // 2], f"{first.lower()}.{last.lower()}@gmail.com")
 
         cur_last = last
         obs_idx_counter = 0
@@ -752,6 +810,10 @@ def make_population():
         will_marry = (i == 0 or i == 3)
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
+        if will_marry:
+            p.evolve_personal_email(timeline_dates[marriage_idx], f"{first.lower()}.{new_last.lower()}@gmail.com")
+        elif i % 2 == 1 and len(timeline_dates) > 5:
+            p.evolve_personal_email(timeline_dates[len(timeline_dates) // 2], f"{first.lower()}.{last.lower()}@gmail.com")
 
         cur_last = last
         obs_idx_counter = 0

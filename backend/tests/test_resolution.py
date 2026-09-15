@@ -194,7 +194,21 @@ class TestEmailAndPhoneSimilarity(unittest.TestCase):
         o2 = {"emails": ["john.smith@gmail.com"]}
         score, status = email_score(o1, o2)
         self.assertEqual(score, 1.0)
-        self.assertEqual(status, "match")
+        self.assertEqual(status, "exact_match")
+
+    def test_email_score_evolution(self):
+        # Personal <-> Work complementary pair with matching username
+        o1 = {"emails": ["john.smith@gmail.com"]}
+        o2 = {"emails": ["john_smith@emp-1.com"]}
+        score, status = email_score(o1, o2)
+        self.assertEqual(score, 0.88)
+        self.assertEqual(status, "personal_work_pair")
+
+        # Personal email provider migration (e.g. Yahoo -> Gmail)
+        o3 = {"emails": ["john.smith@yahoo.com"]}
+        score3, status3 = email_score(o1, o3)
+        self.assertEqual(score3, 0.85)
+        self.assertEqual(status3, "provider_migration")
 
     def test_email_score_disjoint_and_missing(self):
         # Disjoint emails
@@ -333,6 +347,16 @@ class TestEndToEndResolution(unittest.TestCase):
                     and compressed[i] != compressed[i + 1]
                 )
                 self.assertFalse(is_ping_pong, f"Entity {eid} exhibited 2-city ping-pong loop: {compressed}")
+
+    def test_observation_email_realism_constraints(self):
+        from resolution import PERSONAL_EMAIL_DOMAINS
+        for o in self.observations:
+            emails = o.get("emails", [])
+            self.assertLessEqual(len(emails), 2, f"Observation {o['observation_id']} has > 2 emails: {emails}")
+            p_count = sum(1 for e in emails if any(e.endswith("@" + d) for d in PERSONAL_EMAIL_DOMAINS))
+            w_count = len(emails) - p_count
+            self.assertLessEqual(p_count, 1, f"Observation {o['observation_id']} has > 1 personal email: {emails}")
+            self.assertLessEqual(w_count, 1, f"Observation {o['observation_id']} has > 1 work email: {emails}")
 
 
 if __name__ == "__main__":
