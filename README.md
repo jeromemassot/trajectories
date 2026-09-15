@@ -138,10 +138,10 @@ For each candidate pair $(O_i, O_j)$, the engine evaluates six complementary dim
    - Disjoint phone numbers: $0.5 - 0.3 \times \exp(-\Delta t / \tau_{\text{phone}})$ (penalizes different active phones on the same day, relaxing toward neutral over years).
    - Missing phone on either record: $0.5$ (neutral).
 
-5. **Dual-Regime Spatial Locality & Relocation Plausibility ($S_{\text{spatial\_locality}}, S_{\text{reloc\_plaus}} \in [0, 1]$)**:
+5. **Dual-Regime Spatial Locality & Relocation Plausibility ($S_{\text{locality}}, S_{\text{reloc}} \in [0, 1]$)**:
    - Replaced continuous $km/h$ velocity with human-centric spatial modeling across two regimes:
      - **Regime 1: Local Habitual Activity ($d \le 50\text{ km}$)**: Daily commuting and living patterns modeled with exponential distance decay:
-       $$S_{\text{spatial\_locality}} = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{180}\right) \times \exp\left(-\frac{d}{25}\right), \quad S_{\text{reloc\_plaus}} = 1.0$$
+       $$S_{\text{locality}} = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{180}\right) \times \exp\left(-\frac{d}{25}\right), \quad S_{\text{reloc}} = 1.0$$
      - **Regime 2: Inter-City Relocations ($d > 50\text{ km}$)**: Relocation plausibility evaluated based on elapsed time and anchor continuity. Rapid alternation between distant cities without anchor continuity ($\Delta t < 14\text{ days}$) is heavily penalized ($0.10$), whereas relocations separated by weeks or months receive plausible scores ($0.70$–$0.80$).
      - **Kinematic Impossibility**: Same-day sightings across distant cities ($d > 50\text{ km}, \Delta t = 0\text{ days}$) trigger a hard cannot-link block.
    - *(Detailed documentation in [`RelocationBehavior.md`](file:///home/jeromemassot/Projects/Trajectories/RelocationBehavior.md))*
@@ -153,7 +153,7 @@ For each candidate pair $(O_i, O_j)$, the engine evaluates six complementary dim
 
 #### Logistic Squashing & Disqualification Multipliers
 The evidence dimensions are combined into a linear logit and transformed through the standard logistic function:
-$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_e(S_{\text{email}} - 0.5) + w_p(S_{\text{phone}} - 0.5) + w_{sl}(S_{\text{spatial\_locality}} - 0.5) + w_{rp}(S_{\text{reloc\_plaus}} - 0.5) + w_c S_{\text{context}}\right)\right)}$$
+$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_e(S_{\text{email}} - 0.5) + w_p(S_{\text{phone}} - 0.5) + w_{\text{sl}}(S_{\text{locality}} - 0.5) + w_{\text{rp}}(S_{\text{reloc}} - 0.5) + w_c S_{\text{context}}\right)\right)}$$
 
 Near-immutable biological and physical laws are **disqualifying**, not merely additive votes:
 - If a confirmed DOB mismatch exists, the probability is crushed multiplicatively:

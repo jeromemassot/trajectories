@@ -7,7 +7,7 @@ This document details the architectural and algorithmic overhaul of the spatial-
 ## 1. Overview & Problem Formulation
 
 In earlier versions of the platform, relocation feasibility was evaluated using an artificial continuous physical velocity:
-$$\\text{velocity} = \\frac{\\text{distance\\_km}}{\\max(\\Delta t_{\\text{hours}}, 0.5)}$$
+$$\\text{velocity} = \\frac{\\text{distance}}{\\max(\\Delta t_{\\text{hours}}, 0.5)}$$
 
 For human beings traveling by cars, planes, or trains:
 1. **Velocity in km/h is not meaningful over long periods**: Describing a relocation between Dallas and Phoenix separated by 9 months as traveling at "$0.2\\text{ km/h}$" is artificial and uninformative.
@@ -50,18 +50,18 @@ The new model evaluates spatial relationships across two distinct geographic reg
 #### 1. Regime 1: Local Habitual Activity Area ($d \\le 50\\text{ km}$)
 - When two observations are within the same metropolitan area or neighborhood ($d \\le 50\\text{ km}$), they reflect normal daily commuting and living patterns.
 - Evaluated with an exponential local decay:
-  $$\\text{spatial\\_locality} = 0.5 + 0.5 \\times \\exp\\left(-\\frac{\\Delta t}{180}\\right) \\times \\exp\\left(-\\frac{d}{25}\\right)$$
+  $$S_{\text{locality}} = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{180}\right) \times \exp\left(-\frac{d}{25}\right)$$
 - `relocation_plausibility = 1.0` (the person has not relocated; they are in their habitual activity zone).
 
-#### 2. Regime 2: Inter-City / Inter-State Relocations ($d > 50\\text{ km}$)
+#### 2. Regime 2: Inter-City / Inter-State Relocations ($d > 50\text{ km}$)
 - When observations are in different cities or states, relocation plausibility is evaluated based on **elapsed time** and **anchor continuity**:
-  - **Rapid Churn Penalty ($\\Delta t < 14\\text{ days}$ without anchor)**: Alternating between distant cities across a short timeline without anchor continuity receives `relocation_plausibility = 0.10`, penalizing implausible rapid jumping between distinct cities.
-  - **Short Transition ($14 \\le \\Delta t < 21\\text{ days}$ without anchor)**: Receives `relocation_plausibility = 0.40`.
-  - **Plausible Relocation ($\\Delta t \\ge 21\\text{ days}$)**: Relocations separated by weeks, months, or years receive `relocation_plausibility = 0.70` (unanchored) or `0.80` (anchor-supported), recognizing natural career and life relocations without penalty.
+  - **Rapid Churn Penalty ($\Delta t < 14\text{ days}$ without anchor)**: Alternating between distant cities across a short timeline without anchor continuity receives `relocation_plausibility = 0.10`, penalizing implausible rapid jumping between distinct cities.
+  - **Short Transition ($14 \le \Delta t < 21\text{ days}$ without anchor)**: Receives `relocation_plausibility = 0.40`.
+  - **Plausible Relocation ($\Delta t \ge 21\text{ days}$)**: Relocations separated by weeks, months, or years receive `relocation_plausibility = 0.70` (unanchored) or `0.80` (anchor-supported), recognizing natural career and life relocations without penalty.
   - `spatial_locality = 0.10` (the observations are in distinct geographic regions).
 
 #### 3. Simultaneous Presence Conflict (Strict Hard Block)
-- If two observations occur on the **exact same calendar day** ($\\Delta t = 0\\text{ days}$) across different metropolitan areas ($d > 100\\text{ km}$), they cannot physically belong to the same person.
+- If two observations occur on the **exact same calendar day** ($\Delta t = 0\text{ days}$) across different metropolitan areas ($d > 100\text{ km}$), they cannot physically belong to the same person.
 - Triggers a strict `hard_block = True` cannot-link constraint, forcing the pairwise probability to $0.0$.
 
 #### 4. Context & Anchor Continuity (`employer_id`, `household_id`, `persistent_token`)
@@ -76,15 +76,15 @@ The new model evaluates spatial relationships across two distinct geographic reg
 
 The logistic probability combines the redesigned spatial and relocation features:
 
-$$\\begin{aligned}
-\\text{Logit} &= w_{\\text{name}}(\\text{name\\_sim} - 0.5) \\
-&+ w_{\\text{dob}}(\\text{dob\\_sim} - 0.5) \\
-&+ w_{\\text{email}}(\\text{email\\_sim} - 0.5) \\
-&+ w_{\\text{phone}}(\\text{phone\\_sim} - 0.5) \\
-&+ w_{\\text{loc}}(\\text{spatial\\_locality} - 0.5) \\
-&+ w_{\\text{reloc}}(\\text{relocation\\_plausibility} - 0.5) \\
-&+ w_{\\text{cooc}}(\\text{cooccurrence})
-\\end{aligned}$$
+$$\begin{aligned}
+\text{Logit} &= w_{\text{name}}(S_{\text{name}} - 0.5) \\
+&+ w_{\text{dob}}(S_{\text{dob}} - 0.5) \\
+&+ w_{\text{email}}(S_{\text{email}} - 0.5) \\
+&+ w_{\text{phone}}(S_{\text{phone}} - 0.5) \\
+&+ w_{\text{loc}}(S_{\text{locality}} - 0.5) \\
+&+ w_{\text{reloc}}(S_{\text{reloc}} - 0.5) \\
+&+ w_{\text{cooc}}(S_{\text{context}})
+\end{aligned}$$
 
 $$\\text{Probability} = \\frac{1}{1 + e^{-\\text{Logit}}}$$
 
