@@ -305,10 +305,23 @@
           <input type="range" id="gen_n_name_collision_pairs" min="0" max="10" step="1" value="2" />
         </label>
 
-        <label class="checkbox-row" style="margin-top: 10px;">
-          <input type="checkbox" id="gen_include_phone_reallocation" checked />
-          <span>Include recycled phone number confounders (Marcus Vance &amp; Clara Oswald)</span>
-        </label>
+        <div class="has-tooltip-wrapper" style="margin-top: 12px;">
+          <label class="checkbox-row" style="margin: 0;">
+            <input type="checkbox" id="gen_include_phone_reallocation" checked />
+            <span class="tooltip-trigger-label">
+              <span>Include recycled phone number confounders (Marcus Vance &amp; Clara Oswald)</span>
+              <span class="tooltip-info-badge" title="Click or hover to learn why this confounder is useful">ⓘ</span>
+            </span>
+          </label>
+          <div class="custom-tooltip-popup" role="tooltip">
+            <div class="tooltip-title">💡 Why include recycled phone confounders?</div>
+            <div class="tooltip-body">
+              <p>In telecommunications, phone numbers are relinquished and reallocated to new individuals after carrier quarantine. <strong>Marcus Vance</strong> (Boston, 2016–2018) and <strong>Clara Oswald</strong> (Denver, 2021–2024) both hold <code>+1-555-0199</code> across different years.</p>
+              <p>Including this adversarial test case validates that the resolution engine avoids false merges between unrelated people sharing a recycled number, stress-testing the <strong>temporal carrier decay</strong> (<em>&tau;<sub>phone</sub> = 730 days</em>) and <strong>biological DOB conflict</strong> guardrails.</p>
+            </div>
+            <div class="tooltip-arrow"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Card 2: Date of Birth Noise -->

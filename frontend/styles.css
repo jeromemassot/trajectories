@@ -975,3 +975,105 @@ footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size:
   color: var(--muted);
 }
 
+/* Tooltip for Confounders & Explanations */
+.has-tooltip-wrapper {
+  position: relative;
+  display: block;
+}
+
+.tooltip-trigger-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+
+.tooltip-info-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid var(--accent);
+  cursor: help;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.has-tooltip-wrapper:hover .tooltip-info-badge {
+  background: var(--accent);
+  color: #ffffff;
+  transform: scale(1.15);
+}
+
+.custom-tooltip-popup {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  width: min(350px, 92vw);
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.has-tooltip-wrapper:hover .custom-tooltip-popup,
+.has-tooltip-wrapper:focus-within .custom-tooltip-popup {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.tooltip-title {
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+}
+
+.tooltip-body p {
+  margin: 0 0 6px 0;
+  color: var(--text);
+}
+
+.tooltip-body p:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-body code {
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.tooltip-arrow {
+  position: absolute;
+  bottom: -6px;
+  left: 32px;
+  width: 10px;
+  height: 10px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
