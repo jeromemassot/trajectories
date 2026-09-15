@@ -360,7 +360,6 @@
     speedMs: 1200,
     markers: [],
     segments: [],
-    haloMarker: null,
   };
 
   function buildPairMap() {
@@ -631,11 +630,18 @@
     const obs = timelineState.obsList;
     if (!obs || obs.length === 0) return;
 
-    // 1. Manage marker visibility
+    // 1. Manage marker visibility and active emphasis
     timelineState.markers.forEach((m, idx) => {
       if (idx <= stepIdx) {
         if (!state.trajectoryLayerGroup.hasLayer(m)) {
           state.trajectoryLayerGroup.addLayer(m);
+        }
+        if (idx === stepIdx) {
+          m.setRadius(9);
+          m.setStyle({ weight: 3 });
+        } else {
+          m.setRadius(7);
+          m.setStyle({ weight: 2 });
         }
       } else {
         if (state.trajectoryLayerGroup.hasLayer(m)) {
@@ -672,27 +678,8 @@
       }
     });
 
-    // 3. Manage active halo marker
+    // 3. Update scrubber and status badge
     const activeObs = obs[stepIdx];
-    if (activeObs) {
-      if (!timelineState.haloMarker) {
-        timelineState.haloMarker = L.circleMarker([activeObs.lat, activeObs.lon], {
-          radius: 14,
-          fillColor: "#ff6b6b",
-          fillOpacity: 0.35,
-          color: "#ff6b6b",
-          weight: 2.5,
-          className: "active-pulse-halo",
-        });
-      } else {
-        timelineState.haloMarker.setLatLng([activeObs.lat, activeObs.lon]);
-      }
-      if (!state.trajectoryLayerGroup.hasLayer(timelineState.haloMarker)) {
-        state.trajectoryLayerGroup.addLayer(timelineState.haloMarker);
-      }
-    }
-
-    // 4. Update scrubber and status badge
     const scrubber = $("#timelineScrubber");
     if (scrubber) scrubber.value = stepIdx;
     const statusBadge = $("#timelineStatus");
@@ -976,7 +963,6 @@
     currentEntityLatLngs = [];
     timelineState.markers = [];
     timelineState.segments = [];
-    timelineState.haloMarker = null;
 
     // 1. Draw subtle background observation dots across the entire dataset
     state.observations.forEach((o) => {
