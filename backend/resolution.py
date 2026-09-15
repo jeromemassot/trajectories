@@ -21,7 +21,8 @@ probability, not a fact.
 import math
 import itertools
 from collections import defaultdict
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +165,7 @@ def days_between(d1, d2):
     return abs((date.fromisoformat(d1) - date.fromisoformat(d2)).days)
 
 
-def evaluate_spatial_and_relocation(o1, o2):
+def evaluate_spatial_and_relocation(o1, o2, use_persistent_tokens=True):
     """Evaluates spatial relationship without an artificial km/h velocity calculation.
 
     Human beings travel via transportation modes (cars, flights, trains) and conduct
@@ -202,8 +203,13 @@ def evaluate_spatial_and_relocation(o1, o2):
 
     # 3. Inter-city / inter-state distance (> 50 km)
     # Relocation is rare over short timelines; plausible over multi-week/month/year timelines
+    has_token = bool(
+        use_persistent_tokens and
+        o1.get("persistent_token") and
+        o1["persistent_token"] == o2.get("persistent_token")
+    )
     has_anchor = bool(
-        (o1.get("persistent_token") and o1["persistent_token"] == o2.get("persistent_token")) or
+        has_token or
         (o1.get("household_id") and o1["household_id"] == o2.get("household_id")) or
         (o1.get("employer_id") and o1["employer_id"] == o2.get("employer_id"))
     )
@@ -241,12 +247,12 @@ def spatiotemporal_kernel(o1, o2):
 # 3. Co-occurrence / shared-context features
 # ---------------------------------------------------------------------------
 
-def cooccurrence_score(o1, o2):
+def cooccurrence_score(o1, o2, use_persistent_tokens=True):
     """Shared household / employer / persistent token = strong continuity
     anchors, exactly the 'secondary anchors' the brief calls for to survive
     simultaneous name+address discontinuities."""
     score = 0.0
-    if o1.get("persistent_token") and o1["persistent_token"] == o2.get("persistent_token"):
+    if use_persistent_tokens and o1.get("persistent_token") and o1["persistent_token"] == o2.get("persistent_token"):
         score = max(score, 0.98)
     if o1.get("household_id") and o1["household_id"] == o2.get("household_id"):
         score = max(score, 0.35)
@@ -255,13 +261,110 @@ def cooccurrence_score(o1, o2):
     return score
 
 
+def parse_partial_date(s):
+    """Parses a date string in YYYY, YYYY-MM, or YYYY-MM-DD format.
+    Returns (year, month_or_none, day_or_none) or None if unparseable.
+    """
+    if not s:
+        return None
+    s = s.strip()
+    parts = s.split("-")
+    if len(parts) == 1 and len(parts[0]) == 4 and parts[0].isdigit():
+        return (int(parts[0]), None, None)
+    elif len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        m = int(parts[1])
+        if 1 <= m <= 12:
+            return (int(parts[0]), m, None)
+    elif len(parts) == 3:
+        try:
+            d = date.fromisoformat(s)
+            return (d.year, d.month, d.day)
+        except ValueError:
+            return None
+    return None
+
+
+def is_date_compatible_with_partial(d_full, p_partial):
+    """Checks if a full date falls within a partial date window (+/- 1 day
+    tolerance to account for timezone and boundary shifts e.g. Oct 31 <-> Nov 1).
+    """
+    py, pm, _ = p_partial
+    if pm is None:
+        # Year only: py-01-01 to py-12-31 with +/- 1 day buffer
+        start_d = date(py, 1, 1) - timedelta(days=1)
+        end_d = date(py, 12, 31) + timedelta(days=1)
+        return start_d <= d_full <= end_d
+    else:
+        # Year and month: py-pm-01 to py-pm-lastday with +/- 1 day buffer
+        _, last_day = calendar.monthrange(py, pm)
+        start_d = date(py, pm, 1) - timedelta(days=1)
+        end_d = date(py, pm, last_day) + timedelta(days=1)
+        return start_d <= d_full <= end_d
+
+
 def dob_score(o1, o2):
-    if not o1.get("dob") or not o2.get("dob"):
+    """Evaluates date-of-birth agreement with tolerance for partial dates and off-by-one errors.
+
+    Supports:
+    - Exact full matches ("YYYY-MM-DD" == "YYYY-MM-DD"): 1.0, conflict=False
+    - Exact year+month matches ("YYYY-MM" == "YYYY-MM"): 0.90, conflict=False
+    - Exact year matches ("YYYY" == "YYYY"): 0.80, conflict=False
+    - Off-by-one day full dates (diff == 1): 0.88, conflict=False (timezone / transcription error)
+    - Off-by-two days full dates (diff == 2): 0.78, conflict=False (opposing +/- 1 day shifts)
+    - Compatible full vs partial dates: 0.90 (year+month) or 0.80 (year only), conflict=False
+    - Missing date in either record: 0.5, conflict=False
+    - Genuine conflicts (diff > 2 days, mismatching months, mismatching years): 0.0, conflict=True
+    """
+    d1_str = o1.get("dob")
+    d2_str = o2.get("dob")
+    if not d1_str or not d2_str:
         return 0.5, False  # unknown -> neutral, no conflict
-    if o1["dob"] == o2["dob"]:
-        return 1.0, False
-    return 0.0, True  # DOB is (near) immutable: a confirmed mismatch is disqualifying,
-                       # not merely "a vote against" - handled like kinematic infeasibility
+
+    p1 = parse_partial_date(d1_str)
+    p2 = parse_partial_date(d2_str)
+    if not p1 or not p2:
+        return 0.5, False
+
+    # Exact string match
+    if d1_str == d2_str:
+        if p1[2] is not None:
+            return 1.0, False  # full exact date
+        elif p1[1] is not None:
+            return 0.90, False  # year and month exact
+        else:
+            return 0.80, False  # year exact
+
+    # Case A: Both are full dates (YYYY-MM-DD)
+    if p1[2] is not None and p2[2] is not None:
+        d1 = date(p1[0], p1[1], p1[2])
+        d2 = date(p2[0], p2[1], p2[2])
+        diff = abs((d1 - d2).days)
+        if diff == 1:
+            return 0.88, False
+        elif diff == 2:
+            return 0.78, False
+        return 0.0, True
+
+    # Case B: One full date, one partial date
+    if p1[2] is not None and p2[2] is None:
+        d1 = date(p1[0], p1[1], p1[2])
+        if is_date_compatible_with_partial(d1, p2):
+            return 0.90 if p2[1] is not None else 0.80, False
+        return 0.0, True
+    if p2[2] is not None and p1[2] is None:
+        d2 = date(p2[0], p2[1], p2[2])
+        if is_date_compatible_with_partial(d2, p1):
+            return 0.90 if p1[1] is not None else 0.80, False
+        return 0.0, True
+
+    # Case C: Both are partial dates (year-only or year-month)
+    if p1[0] != p2[0]:
+        return 0.0, True
+    if p1[1] is not None and p2[1] is not None:
+        if p1[1] == p2[1]:
+            return 0.90, False
+        return 0.0, True
+    return 0.80, False
 
 
 TAU_PHONE_DAYS = 730.0  # ~2 years carrier reallocation / churn scale
@@ -435,8 +538,16 @@ def extract_pair_features(o1, o2):
     dob_sim, dob_conflict = dob_score(o1, o2)
     em_sim, _ = email_score(o1, o2)
     ph_sim, _ = phone_score(o1, o2)
-    cooc = cooccurrence_score(o1, o2)
-    locality, reloc_plaus, hard_block, mobility_expl = evaluate_spatial_and_relocation(o1, o2)
+
+    token_shared = bool(
+        o1.get("persistent_token") and
+        o1["persistent_token"] == o2.get("persistent_token")
+    )
+    cooc_with = cooccurrence_score(o1, o2, use_persistent_tokens=True)
+    cooc_without = cooccurrence_score(o1, o2, use_persistent_tokens=False)
+
+    loc_with, reloc_with, hb_with, expl_with = evaluate_spatial_and_relocation(o1, o2, use_persistent_tokens=True)
+    _, reloc_without, hb_without, expl_without = evaluate_spatial_and_relocation(o1, o2, use_persistent_tokens=False)
 
     return {
         "first_name_sim": round(first_sim, 3),
@@ -446,26 +557,48 @@ def extract_pair_features(o1, o2):
         "dob_conflict": dob_conflict,
         "email_sim": round(em_sim, 3),
         "phone_sim": round(ph_sim, 3),
-        "spatial_locality": locality,
-        "relocation_plausibility": reloc_plaus,
-        "cooccurrence": round(cooc, 3),
-        "hard_block": hard_block,
-        "mobility_explanation": mobility_expl,
+        "spatial_locality": loc_with,
+        "relocation_plausibility": reloc_with,
+        "cooccurrence": round(cooc_with, 3),
+        "hard_block": hb_with,
+        "mobility_explanation": expl_with,
+        # Token-specific variants for dynamic toggling:
+        "token_shared": token_shared,
+        "cooccurrence_with_token": round(cooc_with, 3),
+        "cooccurrence_without_token": round(cooc_without, 3),
+        "relocation_plausibility_with_token": reloc_with,
+        "relocation_plausibility_without_token": reloc_without,
+        "hard_block_without_token": hb_without,
+        "mobility_explanation_without_token": expl_without,
     }
 
 
-def compute_pair_score(features, weights=None):
+def compute_pair_score(features, weights=None, use_persistent_tokens=True):
     """Compute link probability from extracted features and given weights."""
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
+    # Handle backward compatibility aliases from legacy frontend keys
+    if "spatiotemporal" in w and "spatial_locality" not in (weights or {}):
+        w["spatial_locality"] = w["spatiotemporal"]
+    if "kinematic_penalty" in w and "relocation_plausibility" not in (weights or {}):
+        pass
+
     name_sim = features["name_sim"]
     dob_sim = features["dob_sim"]
     dob_conflict = features["dob_conflict"]
     email_sim = features.get("email_sim", 0.5)
     phone_sim = features.get("phone_sim", 0.5)
     spatial_locality = features.get("spatial_locality", 0.5)
-    reloc_plaus = features.get("relocation_plausibility", 0.7)
-    cooc = features["cooccurrence"]
-    hard_block = features["hard_block"]
+
+    if use_persistent_tokens:
+        reloc_plaus = features.get("relocation_plausibility_with_token", features.get("relocation_plausibility", 0.7))
+        cooc = features.get("cooccurrence_with_token", features.get("cooccurrence", 0.0))
+        hard_block = features.get("hard_block", False)
+        mobility_expl = features.get("mobility_explanation", "")
+    else:
+        reloc_plaus = features.get("relocation_plausibility_without_token", features.get("relocation_plausibility", 0.7))
+        cooc = features.get("cooccurrence_without_token", 0.0)
+        hard_block = features.get("hard_block_without_token", features.get("hard_block", False))
+        mobility_expl = features.get("mobility_explanation_without_token", features.get("mobility_explanation", ""))
 
     if hard_block:
         prob = 0.0
@@ -499,17 +632,18 @@ def compute_pair_score(features, weights=None):
             "email_sim": features["email_sim"],
             "phone_sim": features["phone_sim"],
             "spatial_locality": features["spatial_locality"],
-            "relocation_plausibility": features["relocation_plausibility"],
-            "cooccurrence": features["cooccurrence"],
-            "hard_block": features["hard_block"],
-            "mobility_explanation": features.get("mobility_explanation", ""),
+            "relocation_plausibility": reloc_plaus,
+            "cooccurrence": cooc,
+            "hard_block": hard_block,
+            "token_shared": features.get("token_shared", False),
+            "mobility_explanation": mobility_expl,
         },
     }
 
 
-def score_pair(o1, o2, weights=None):
+def score_pair(o1, o2, weights=None, use_persistent_tokens=True):
     feats = extract_pair_features(o1, o2)
-    return compute_pair_score(feats, weights)
+    return compute_pair_score(feats, weights, use_persistent_tokens=use_persistent_tokens)
 
 
 def extract_all_candidate_features(observations):
@@ -522,18 +656,18 @@ def extract_all_candidate_features(observations):
     return candidate_features
 
 
-def score_all_pairs(observations, weights=None, precomputed_features=None):
+def score_all_pairs(observations, weights=None, precomputed_features=None, use_persistent_tokens=True):
     if precomputed_features is not None:
         results = []
         for item in precomputed_features:
-            r = compute_pair_score(item["features"], weights)
+            r = compute_pair_score(item["features"], weights, use_persistent_tokens=use_persistent_tokens)
             r["i"], r["j"] = item["i"], item["j"]
             results.append(r)
         return results
 
     results = []
     for i, j in sorted(candidate_pairs(observations)):
-        r = score_pair(observations[i], observations[j], weights)
+        r = score_pair(observations[i], observations[j], weights, use_persistent_tokens=use_persistent_tokens)
         r["i"], r["j"] = i, j
         results.append(r)
     return results
@@ -660,10 +794,13 @@ def evaluate(observations, clusters):
 # 8. Orchestration
 # ---------------------------------------------------------------------------
 
-def resolve(observations, weights=None, threshold=0.5, precomputed_features=None):
-    pair_scores = score_all_pairs(observations, weights, precomputed_features=precomputed_features)
+def resolve(observations, weights=None, threshold=0.5, precomputed_features=None, use_persistent_tokens=True):
+    pair_scores = score_all_pairs(observations, weights, precomputed_features=precomputed_features, use_persistent_tokens=use_persistent_tokens)
     clusters, accepted, rejected, accepted_set = cluster_pairs(len(observations), pair_scores, threshold)
     metrics = evaluate(observations, clusters)
+    token_anchored_count = sum(1 for r in pair_scores if r["features"].get("token_shared"))
+    metrics["token_anchored_pairs"] = token_anchored_count
+    metrics["use_persistent_tokens"] = use_persistent_tokens
 
     entities = []
     for cid, members in enumerate(clusters):
@@ -701,4 +838,5 @@ def resolve(observations, weights=None, threshold=0.5, precomputed_features=None
         ],
         "threshold": threshold,
         "weights": {**DEFAULT_WEIGHTS, **(weights or {})},
+        "use_persistent_tokens": use_persistent_tokens,
     }

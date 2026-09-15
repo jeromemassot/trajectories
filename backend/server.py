@@ -28,6 +28,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from resolution import resolve, extract_all_candidate_features
+from data_gen import make_population
 
 DATA_PATH = BACKEND_DIR / "data" / "mock_observations.json"
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
@@ -98,11 +99,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_file(file_path, content_type)
 
     def do_POST(self):
+        global OBSERVATIONS, CANDIDATE_FEATURES
         parsed = urlparse(self.path)
-        if parsed.path != "/api/resolve":
-            self._send_json({"error": "not found"}, 404)
-            return
-
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -111,19 +109,80 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid JSON body"}, 400)
             return
 
-        threshold = float(body.get("threshold", 0.65))
-        weights = body.get("weights") or {}
-        try:
-            result = resolve(
-                OBSERVATIONS,
-                weights=weights,
-                threshold=threshold,
-                precomputed_features=CANDIDATE_FEATURES,
-            )
-        except Exception as e:  # pragma: no cover - defensive for a live demo
-            self._send_json({"error": str(e)}, 500)
+        if parsed.path == "/api/resolve":
+            threshold = float(body.get("threshold", 0.65))
+            weights = body.get("weights") or {}
+            use_persistent_tokens = bool(body.get("use_persistent_tokens", True))
+            try:
+                result = resolve(
+                    OBSERVATIONS,
+                    weights=weights,
+                    threshold=threshold,
+                    precomputed_features=CANDIDATE_FEATURES,
+                    use_persistent_tokens=use_persistent_tokens,
+                )
+            except Exception as e:  # pragma: no cover - defensive for a live demo
+                self._send_json({"error": str(e)}, 500)
+                return
+            self._send_json(result)
             return
-        self._send_json(result)
+
+        if parsed.path == "/api/generate":
+            try:
+                gen_params = {
+                    "seed": int(body.get("seed", 42)),
+                    "n_neighborhood": int(body.get("n_neighborhood", 6)),
+                    "n_intrastate": int(body.get("n_intrastate", 6)),
+                    "n_interstate": int(body.get("n_interstate", 6)),
+                    "n_household_pairs": int(body.get("n_household_pairs", 3)),
+                    "n_name_collision_pairs": int(body.get("n_name_collision_pairs", 2)),
+                    "include_phone_reallocation": bool(body.get("include_phone_reallocation", True)),
+                    "enable_dob_noise": bool(body.get("enable_dob_noise", True)),
+                    "rate_dob_year_only": float(body.get("rate_dob_year_only", 0.10)),
+                    "rate_dob_year_month": float(body.get("rate_dob_year_month", 0.10)),
+                    "rate_dob_shift": float(body.get("rate_dob_shift", 0.12)),
+                    "drop_dob_rate": float(body.get("drop_dob_rate", 0.12)),
+                    "enable_name_noise": bool(body.get("enable_name_noise", True)),
+                    "rate_first_noise": float(body.get("rate_first_noise", 0.35)),
+                    "rate_last_noise": float(body.get("rate_last_noise", 0.15)),
+                    "drop_address_rate": float(body.get("drop_address_rate", 0.10)),
+                    "drop_email_rate": float(body.get("drop_email_rate", 0.08)),
+                    "drop_phone_rate": float(body.get("drop_phone_rate", 0.08)),
+                    "token_rate": float(body.get("token_rate", 0.60)),
+                    "employer_rate": float(body.get("employer_rate", 0.70)),
+                    "return_summary": True,
+                }
+                new_obs, summary = make_population(**gen_params)
+                OBSERVATIONS = new_obs
+                CANDIDATE_FEATURES = extract_all_candidate_features(OBSERVATIONS)
+
+                # Save to disk if requested (defaults to True)
+                if body.get("save_to_disk", True):
+                    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    with open(DATA_PATH, "w") as f:
+                        json.dump(OBSERVATIONS, f, indent=2)
+
+                threshold = float(body.get("threshold", 0.65))
+                weights = body.get("weights") or {}
+                use_persistent_tokens = bool(body.get("use_persistent_tokens", True))
+                result = resolve(
+                    OBSERVATIONS,
+                    weights=weights,
+                    threshold=threshold,
+                    precomputed_features=CANDIDATE_FEATURES,
+                    use_persistent_tokens=use_persistent_tokens,
+                )
+                self._send_json({
+                    "status": "ok",
+                    "observations": OBSERVATIONS,
+                    "summary": summary,
+                    "result": result,
+                })
+            except Exception as e:
+                self._send_json({"error": str(e)}, 500)
+            return
+
+        self._send_json({"error": "not found"}, 404)
 
 
 def main():

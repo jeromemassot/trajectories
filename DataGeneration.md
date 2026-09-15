@@ -145,15 +145,37 @@ In real-world data collection, individuals do not dump an ever-growing historica
 
 ---
 
-## 6. Verification & Benchmark Metrics
+## 6. Date of Birth (DOB) Realism Noise
+
+In real-world public records, credit data, and digital observations, dates of birth exhibit characteristic noise patterns:
+1. **Privacy Redaction / Year Only (`"YYYY"`)**: ~10% of observations contain only the birth year (e.g. `"1984"`).
+2. **Coarse Recording / Year and Month (`"YYYY-MM"`)**: ~10% of observations contain only the birth year and month (e.g. `"1984-07"`).
+3. **Transcription & Timezone Off-by-One Discrepancies**: ~12% of observations differ from the true birth date by $\pm 1$ day before or after (e.g. `"1984-07-14"` or `"1984-07-16"` for a true DOB of `"1984-07-15"`).
+4. **Unrecorded / Missing**: ~6% of observations have `None`.
+5. **Exact Full Date (`"YYYY-MM-DD"`)**: ~62% of observations have the exact full date.
+
+### Resolution Engine Tolerance ([`backend/resolution.py`](file:///home/jeromemassot/Projects/Trajectories/backend/resolution.py))
+`dob_score(o1, o2)` accommodates this noise without triggering false hard blocks:
+- **Full exact match**: $1.00$, `conflict = False`.
+- **Full dates, $\Delta t = 1$ day**: $0.88$, `conflict = False` (supports month/year boundaries e.g. Dec 31 $\leftrightarrow$ Jan 1).
+- **Full dates, $\Delta t = 2$ days** (opposing $\pm 1$ shifts): $0.78$, `conflict = False`.
+- **Compatible full vs. partial date**: $0.90$ (year+month) or $0.80$ (year only), `conflict = False`.
+- **Incompatible dates** (different months/years, $\Delta t > 2$ days): $0.00$, `conflict = True` (disqualifying hard block).
+
+---
+
+## 7. Verification & Benchmark Metrics
 
 The generated dataset ([`backend/data/mock_observations.json`](file:///home/jeromemassot/Projects/Trajectories/backend/data/mock_observations.json)) was evaluated against the resolution engine at a clustering threshold of $0.65$:
 
 | Metric | Measured Value | Benchmark Target |
 | :--- | :--- | :--- |
-| **Total Observations** | **314** | Multi-year realistic sampling |
+| **Total Observations** | **306** | Multi-year realistic sampling |
 | **True Latent Entities** | **30** | Exactly 30 entities |
 | **Predicted Entity Clusters** | **30** | Exactly 30 clusters |
+| **Year-Only DOBs (`^\d{4}$`)** | **27 (8.8%)** | Present |
+| **Year-Month DOBs (`^\d{4}-\d{2}$`)** | **26 (8.5%)** | Present |
+| **1-Day Shifted Entities** | **15 / 30 entities** | Multi-day variation present |
 | **Max Emails per Observation** | **$\le 2$ ($\le 1$ personal, $\le 1$ work)** | No accumulating dumps |
 | **Consecutive Identical Coordinates** | **0 (0.0%)** | 0 duplicates |
 | **Category 1 Max Spatial Span** | **1.69 -- 4.62 km** | $< 10\text{ km}$ (neighborhood) |
@@ -163,13 +185,13 @@ The generated dataset ([`backend/data/mock_observations.json`](file:///home/jero
 | **Pairwise Precision** | **1.0000 (100%)** | $\ge 0.98$ ($FP = 0$) |
 | **Pairwise Recall** | **1.0000 (100%)** | $\ge 0.98$ ($FN = 0$) |
 | **Pairwise $F_1$ Score** | **1.0000 (100%)** | $\ge 0.98$ |
-| **Pairwise True Positives ($TP$)** | **1,604** | -- |
-| **Pairwise True Negatives ($TN$)** | **47,537** | -- |
-| **Backend Unit Tests** | **22 / 22 passed** | 100% pass |
+| **Pairwise True Positives ($TP$)** | **1,551** | -- |
+| **Pairwise True Negatives ($TN$)** | **45,114** | -- |
+| **Backend Unit Tests** | **25 / 25 passed** | 100% pass |
 
 ---
 
-## 7. How to Regenerate
+## 8. How to Regenerate
 
 To regenerate the dataset and re-verify resolution metrics:
 

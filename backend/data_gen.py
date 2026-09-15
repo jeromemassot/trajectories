@@ -428,7 +428,7 @@ HOUSEHOLD_RESIDENCES = {}
 class Person:
     _next_id = 1
     def __init__(self, first, last, sex, dob, home_city, household_id=None,
-                 employer_id=None, carrier=None, home_addr_tuple=None):
+                 employer_id=None, carrier=None, home_addr_tuple=None, token_rate=0.6):
         self.entity_id = f"E{Person._next_id:03d}"
         Person._next_id += 1
         self.first = first
@@ -438,7 +438,7 @@ class Person:
         self.home_city = home_city
         self.household_id = household_id or f"HH-{token_hash(self.entity_id)}"
         self.employer_id = employer_id
-        self.has_persistent_token = random.random() < 0.6
+        self.has_persistent_token = random.random() < token_rate
         self.persistent_token = token_hash(f"{first}{last}{dob}") if self.has_persistent_token else None
         self.events = []
         self.carrier = carrier or CarrierNetwork()
@@ -569,8 +569,30 @@ class Person:
                 active = phones
         return list(active)
 
-def make_population():
-    random.seed(42)
+def make_population(
+    seed=42,
+    n_neighborhood=6,
+    n_intrastate=6,
+    n_interstate=6,
+    n_household_pairs=3,
+    n_name_collision_pairs=2,
+    include_phone_reallocation=True,
+    enable_dob_noise=True,
+    rate_dob_year_only=0.10,
+    rate_dob_year_month=0.10,
+    rate_dob_shift=0.12,
+    drop_dob_rate=0.12,
+    enable_name_noise=True,
+    rate_first_noise=0.35,
+    rate_last_noise=0.15,
+    drop_address_rate=0.10,
+    drop_email_rate=0.08,
+    drop_phone_rate=0.08,
+    token_rate=0.60,
+    employer_rate=0.70,
+    return_summary=False,
+):
+    random.seed(seed)
     Person._next_id = 1
     HOUSEHOLD_RESIDENCES.clear()
     carrier = CarrierNetwork()
@@ -578,24 +600,52 @@ def make_population():
     obs_rows = []
     obs_counter = 1
 
+    def format_noisy_dob(dob, drop_dob=False, dob_noise=True):
+        """Format a date of birth with realistic data collection noise:
+        1. Some observations have just the year ("YYYY").
+        2. Some observations have just the year and month ("YYYY-MM").
+        3. Some observations for the same individual differ by 1 day before or after.
+        - Unrecorded / missing date.
+        - Full exact date ("YYYY-MM-DD").
+        """
+        if dob is None or drop_dob:
+            return None
+        if not (enable_dob_noise and dob_noise):
+            return dob.isoformat()
+
+        r = random.random()
+        th_year = rate_dob_year_only
+        th_ym = th_year + rate_dob_year_month
+        th_shift = th_ym + rate_dob_shift
+        if r < th_year:
+            return f"{dob.year:04d}"
+        elif r < th_ym:
+            return f"{dob.year:04d}-{dob.month:02d}"
+        elif r < th_shift:
+            offset = random.choice([-1, 1])
+            noisy_d = dob + timedelta(days=offset)
+            return noisy_d.isoformat()
+        else:
+            return dob.isoformat()
+
     def new_obs(entity_id, first, last, dob, d, city, address, lat, lon, household_id,
                 employer_id, persistent_token, emails, phones, name_noise=False,
                 drop_dob=False, drop_address=False, drop_email=False, drop_phone=False):
         nonlocal obs_counter
         f, l = first, last
-        if name_noise and random.random() < 0.35:
+        if enable_name_noise and name_noise and random.random() < rate_first_noise:
             if f in NICKNAMES and random.random() < 0.6:
                 f = random.choice(NICKNAMES[f])
             else:
                 f = typo(f)
-        if name_noise and random.random() < 0.15:
+        if enable_name_noise and name_noise and random.random() < rate_last_noise:
             l = typo(l)
         row = {
             "observation_id": f"O{obs_counter:04d}",
             "entity_id_truth": entity_id,
             "first_name": f,
             "last_name": l,
-            "dob": None if drop_dob else dob.isoformat(),
+            "dob": format_noisy_dob(dob, drop_dob=drop_dob, dob_noise=name_noise),
             "timestamp": d.isoformat(),
             "address": None if drop_address else address,
             "city": city,
@@ -623,10 +673,10 @@ def make_population():
             prev = chosen
         return seq
 
-    # ---------------- 1. Category 1: Neighborhood Stayers (6 individuals) ----
+    # ---------------- 1. Category 1: Neighborhood Stayers (n_neighborhood individuals) ----
     # Stay in the same neighborhood; when they move, stay in same neighborhood
     neighborhood_cities = ["Miami, FL", "Dallas, TX", "Boston, MA", "Chicago, IL", "San Francisco, CA", "New York, NY"]
-    for i in range(6):
+    for i in range(n_neighborhood):
         sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
@@ -636,8 +686,8 @@ def make_population():
 
         # Initial home address in neighborhood
         home_addr = nb_pool[0]
-        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < 0.7 else None
-        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, home_addr_tuple=home_addr)
+        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < employer_rate else None
+        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, home_addr_tuple=home_addr, token_rate=token_rate)
         people.append(p)
 
         n_obs = random.randint(8, 14)
@@ -680,10 +730,10 @@ def make_population():
                 p.relocate(home_city, d, new_addr_tuple=new_home_addr)
 
             obs_addr, obs_lat, obs_lon = all_addrs[idx]
-            drop_dob = random.random() < 0.12
-            drop_addr = random.random() < 0.10
-            drop_em = random.random() < 0.08
-            drop_ph = random.random() < 0.08
+            drop_dob = random.random() < drop_dob_rate
+            drop_addr = random.random() < drop_address_rate
+            drop_em = random.random() < drop_email_rate
+            drop_ph = random.random() < drop_phone_rate
 
             new_obs(p.entity_id, first, cur_last, dob, d, home_city,
                     obs_addr, obs_lat, obs_lon,
@@ -692,11 +742,11 @@ def make_population():
                     name_noise=True, drop_dob=drop_dob, drop_address=drop_addr,
                     drop_email=drop_em, drop_phone=drop_ph)
 
-    # ---------------- 2. Category 2: Intra-State Movers (6 individuals) -------
+    # ---------------- 2. Category 2: Intra-State Movers (n_intrastate individuals) -------
     # Move between 2 to 3 cities within their state of origin
-    intra_states = ["TX", "CA", "FL", "NY", "WA", "IL"]
-    for i in range(6):
-        state_code = intra_states[i]
+    intra_states = ["TX", "CA", "FL", "NY", "WA", "IL", "MA", "PA"]
+    for i in range(n_intrastate):
+        state_code = intra_states[i % len(intra_states)]
         cities_in_state = STATE_CITIES[state_code]
         # Choose 2 or 3 cities in order
         n_cities = 3 if i % 2 == 0 and len(cities_in_state) >= 3 else 2
@@ -707,8 +757,8 @@ def make_population():
         last = random.choice(LAST_NAMES)
         dob = rand_date_between(date(1955, 1, 1), date(2000, 1, 1))
         home_city = route_cities[0]
-        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < 0.7 else None
-        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier)
+        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < employer_rate else None
+        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, token_rate=token_rate)
         people.append(p)
 
         n_obs = random.randint(9, 14)
@@ -756,10 +806,10 @@ def make_population():
                     cur_last = new_last
 
                 obs_addr, obs_lat, obs_lon = seq[d_idx]
-                drop_dob = random.random() < 0.12
-                drop_addr = random.random() < 0.10
-                drop_em = random.random() < 0.08
-                drop_ph = random.random() < 0.08
+                drop_dob = random.random() < drop_dob_rate
+                drop_addr = random.random() < drop_address_rate
+                drop_em = random.random() < drop_email_rate
+                drop_ph = random.random() < drop_phone_rate
 
                 new_obs(p.entity_id, first, cur_last, dob, d, city_name,
                         obs_addr, obs_lat, obs_lon,
@@ -769,7 +819,7 @@ def make_population():
                         drop_email=drop_em, drop_phone=drop_ph)
                 obs_idx_counter += 1
 
-    # ---------------- 3. Category 3: Inter-State Migrators (6 individuals) ----
+    # ---------------- 3. Category 3: Inter-State Migrators (n_interstate individuals) ----
     # Multi-hop migration across 2 to 4 distinct states
     inter_routes = [
         ["Boston, MA", "Washington, DC", "Atlanta, GA", "Miami, FL"],
@@ -780,8 +830,8 @@ def make_population():
         ["Atlanta, GA", "Dallas, TX", "San Diego, CA"],
     ]
 
-    for i in range(6):
-        route_cities = inter_routes[i]
+    for i in range(n_interstate):
+        route_cities = inter_routes[i % len(inter_routes)]
         n_cities = len(route_cities)
 
         sex = random.choice(["M", "F"])
@@ -789,8 +839,8 @@ def make_population():
         last = random.choice(LAST_NAMES)
         dob = rand_date_between(date(1955, 1, 1), date(2000, 1, 1))
         home_city = route_cities[0]
-        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < 0.7 else None
-        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier)
+        employer_id = f"EMP-{random.randint(1,6)}" if random.random() < employer_rate else None
+        p = Person(first, last, sex, dob, home_city, employer_id=employer_id, carrier=carrier, token_rate=token_rate)
         people.append(p)
 
         n_obs = random.randint(10, 15)
@@ -832,10 +882,10 @@ def make_population():
                     cur_last = new_last
 
                 obs_addr, obs_lat, obs_lon = seq[d_idx]
-                drop_dob = random.random() < 0.12
-                drop_addr = random.random() < 0.10
-                drop_em = random.random() < 0.08
-                drop_ph = random.random() < 0.08
+                drop_dob = random.random() < drop_dob_rate
+                drop_addr = random.random() < drop_address_rate
+                drop_em = random.random() < drop_email_rate
+                drop_ph = random.random() < drop_phone_rate
 
                 new_obs(p.entity_id, first, cur_last, dob, d, city_name,
                         obs_addr, obs_lat, obs_lon,
@@ -845,9 +895,9 @@ def make_population():
                         drop_email=drop_em, drop_phone=drop_ph)
                 obs_idx_counter += 1
 
-    # ---------------- 4. Household Confounders (3 pairs = 6 individuals) -----
+    # ---------------- 4. Household Confounders (n_household_pairs pairs) -----
     # Siblings/spouses in shared household (Category 1 neighborhood stayers)
-    for _ in range(3):
+    for _ in range(n_household_pairs):
         last = random.choice(LAST_NAMES)
         home_city, hlat, hlon = random.choice(CITIES)
         household_id = f"HH-{token_hash(last + home_city + str(random.random()))}"
@@ -857,7 +907,7 @@ def make_population():
             sex = random.choice(["M", "F"])
             first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
             dob = rand_date_between(date(1960, 1, 1), date(2002, 1, 1))
-            p = Person(first, last, sex, dob, home_city, household_id=household_id, carrier=carrier)
+            p = Person(first, last, sex, dob, home_city, household_id=household_id, carrier=carrier, token_rate=token_rate)
             p.phone_timeline = [(START_DATE, [household_landline])]
             people.append(p)
             siblings.append(p)
@@ -882,9 +932,9 @@ def make_population():
                     res_addr, res_lat, res_lon, household_id, None, p.persistent_token,
                     emails=p.emails_at(common_date), phones=p.active_phones_at(common_date))
 
-    # ---------------- 5. Name-Collision Confounders (2 pairs = 4 individuals) -
+    # ---------------- 5. Name-Collision Confounders (n_name_collision_pairs pairs) -
     # Unrelated people with identical names in distant cities/states
-    for _ in range(2):
+    for _ in range(n_name_collision_pairs):
         sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
@@ -894,8 +944,8 @@ def make_population():
 
         dobA = rand_date_between(date(1958, 1, 1), date(1998, 1, 1))
         dobB = rand_date_between(date(1958, 1, 1), date(1998, 1, 1))
-        pA = Person(first, last, sex, dobA, cityA, carrier=carrier)
-        pB = Person(first, last, sex, dobB, cityB, carrier=carrier)
+        pA = Person(first, last, sex, dobA, cityA, carrier=carrier, token_rate=token_rate)
+        pB = Person(first, last, sex, dobB, cityB, carrier=carrier, token_rate=token_rate)
         people += [pA, pB]
 
         for p, cur_c in [(pA, cityA), (pB, cityB)]:
@@ -924,33 +974,34 @@ def make_population():
                 emails=pB.emails_at(clash_date), phones=pB.active_phones_at(clash_date))
 
     # ---------------- 6. Phone Reallocation Confounder (2 individuals) -------
-    reallocated_number = "+1-555-0199"
-    p_realloc_early = Person("Marcus", "Vance", "M", date(1972, 4, 15), "Boston, MA", carrier=carrier)
-    p_realloc_early.phone_timeline = [
-        (date(2016, 1, 1), [reallocated_number]),
-        (date(2018, 5, 1), [rand_phone("Boston, MA")]),
-    ]
-    people.append(p_realloc_early)
-    boston_addrs = CITY_ADDRESSES["Boston, MA"]
-    b_seq = sample_venue_sequence(boston_addrs, 4)
-    for m_idx, d in enumerate([date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]):
-        addr, lat, lon = b_seq[m_idx]
-        new_obs(p_realloc_early.entity_id, "Marcus", "Vance", p_realloc_early.dob, d,
-                "Boston, MA", addr, lat, lon, p_realloc_early.household_id, None,
-                p_realloc_early.persistent_token, emails=p_realloc_early.emails_at(d),
-                phones=p_realloc_early.active_phones_at(d))
+    if include_phone_reallocation:
+        reallocated_number = "+1-555-0199"
+        p_realloc_early = Person("Marcus", "Vance", "M", date(1972, 4, 15), "Boston, MA", carrier=carrier, token_rate=token_rate)
+        p_realloc_early.phone_timeline = [
+            (date(2016, 1, 1), [reallocated_number]),
+            (date(2018, 5, 1), [rand_phone("Boston, MA")]),
+        ]
+        people.append(p_realloc_early)
+        boston_addrs = CITY_ADDRESSES["Boston, MA"]
+        b_seq = sample_venue_sequence(boston_addrs, 4)
+        for m_idx, d in enumerate([date(2016, 3, 10), date(2017, 1, 15), date(2017, 8, 22), date(2018, 2, 14)]):
+            addr, lat, lon = b_seq[m_idx]
+            new_obs(p_realloc_early.entity_id, "Marcus", "Vance", p_realloc_early.dob, d,
+                    "Boston, MA", addr, lat, lon, p_realloc_early.household_id, None,
+                    p_realloc_early.persistent_token, emails=p_realloc_early.emails_at(d),
+                    phones=p_realloc_early.active_phones_at(d))
 
-    p_realloc_late = Person("Clara", "Oswald", "F", date(1994, 11, 23), "Denver, CO", carrier=carrier)
-    p_realloc_late.phone_timeline = [(date(2021, 1, 1), [reallocated_number])]
-    people.append(p_realloc_late)
-    denver_addrs = CITY_ADDRESSES["Denver, CO"]
-    d_seq = sample_venue_sequence(denver_addrs, 4)
-    for c_idx, d in enumerate([date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]):
-        addr, lat, lon = d_seq[c_idx]
-        new_obs(p_realloc_late.entity_id, "Clara", "Oswald", p_realloc_late.dob, d,
-                "Denver, CO", addr, lat, lon, p_realloc_late.household_id, None,
-                p_realloc_late.persistent_token, emails=p_realloc_late.emails_at(d),
-                phones=p_realloc_late.active_phones_at(d))
+        p_realloc_late = Person("Clara", "Oswald", "F", date(1994, 11, 23), "Denver, CO", carrier=carrier, token_rate=token_rate)
+        p_realloc_late.phone_timeline = [(date(2021, 1, 1), [reallocated_number])]
+        people.append(p_realloc_late)
+        denver_addrs = CITY_ADDRESSES["Denver, CO"]
+        d_seq = sample_venue_sequence(denver_addrs, 4)
+        for c_idx, d in enumerate([date(2021, 4, 5), date(2022, 6, 18), date(2023, 3, 12), date(2024, 1, 20)]):
+            addr, lat, lon = d_seq[c_idx]
+            new_obs(p_realloc_late.entity_id, "Clara", "Oswald", p_realloc_late.dob, d,
+                    "Denver, CO", addr, lat, lon, p_realloc_late.household_id, None,
+                    p_realloc_late.persistent_token, emails=p_realloc_late.emails_at(d),
+                    phones=p_realloc_late.active_phones_at(d))
 
     # Eliminate consecutive duplicate coordinates for the same individual
     by_entity = {}
@@ -977,7 +1028,65 @@ def make_population():
     for i, row in enumerate(obs_rows, start=1):
         row["observation_id"] = f"O{i:04d}"
 
+    if return_summary:
+        return obs_rows, summarize_dataset(obs_rows)
     return obs_rows
+
+def summarize_dataset(obs_rows):
+    """Compute summary metrics and distributions for a generated observation set."""
+    total_obs = len(obs_rows)
+    entities = sorted(list(set(o["entity_id_truth"] for o in obs_rows)))
+    total_entities = len(entities)
+
+    dob_full = 0
+    dob_ym = 0
+    dob_year = 0
+    dob_missing = 0
+    with_token = 0
+    with_employer = 0
+    with_address = 0
+    with_phone = 0
+    with_email = 0
+
+    for o in obs_rows:
+        dob = o.get("dob")
+        if not dob:
+            dob_missing += 1
+        elif len(dob) == 4:
+            dob_year += 1
+        elif len(dob) == 7:
+            dob_ym += 1
+        else:
+            dob_full += 1
+
+        if o.get("persistent_token"):
+            with_token += 1
+        if o.get("employer_id"):
+            with_employer += 1
+        if o.get("address"):
+            with_address += 1
+        if o.get("phones"):
+            with_phone += 1
+        if o.get("emails"):
+            with_email += 1
+
+    return {
+        "total_observations": total_obs,
+        "total_entities": total_entities,
+        "dob_stats": {
+            "full": dob_full,
+            "year_month": dob_ym,
+            "year_only": dob_year,
+            "missing": dob_missing,
+        },
+        "coverage": {
+            "persistent_token_obs": with_token,
+            "employer_obs": with_employer,
+            "address_obs": with_address,
+            "phone_obs": with_phone,
+            "email_obs": with_email,
+        }
+    }
 
 if __name__ == "__main__":
     obs = make_population()

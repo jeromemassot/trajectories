@@ -22,10 +22,11 @@ Given a noisy, independently timestamped stream of observations (such as adminis
    - [Stage 2: Pairwise Evidence Scoring](#stage-2-pairwise-evidence-scoring)
    - [Stage 3: Constrained Agglomerative Clustering](#stage-3-constrained-agglomerative-clustering)
    - [Stage 4: Mathematical Quality Evaluation](#stage-4-mathematical-quality-evaluation)
-3. [Application Functionalities & User Interface](#application-functionalities--user-interface)
-4. [Repository Architecture & Codebase Walkthrough](#repository-architecture--codebase-walkthrough)
-5. [Quick Start Guide](#quick-start-guide)
-6. [Automated Testing Suite](#automated-testing-suite)
+3. [Synthetic Data Generation & Human Mobility Archetypes](#synthetic-data-generation--human-mobility-archetypes)
+4. [Application Functionalities & User Interface](#application-functionalities--user-interface)
+5. [Repository Architecture & Codebase Walkthrough](#repository-architecture--codebase-walkthrough)
+6. [Quick Start Guide](#quick-start-guide)
+7. [Automated Testing Suite](#automated-testing-suite)
 
 ---
 
@@ -113,16 +114,20 @@ For each candidate pair $(O_i, O_j)$, the engine evaluates six complementary dim
    - Adds a phonetic bonus if their Soundex representations match.
    - Calculates a weighted composite: $70\%$ first name similarity (stronger discriminator among family members) and $30\%$ surname similarity.
 
-2. **Date of Birth Agreement ($S_{\text{dob}} \in [0, 1]$)**:
-   - Identical DOBs: $1.0$.
-   - Missing DOB on either record: $0.5$ (treated as uninformative neutral evidence, neither rewarded nor penalized).
-   - Confirmed mismatch: $0.0$, and crucially flags a **biological conflict** (`dob_conflict = True`).
+2. **Date of Birth Agreement & Boundary Tolerance ($S_{\text{dob}} \in [0, 1]$)**:
+   - **Full Exact Date**: $1.00$.
+   - **Partial Date Compatibility**: $0.90$ for Year-Month (`"YYYY-MM"`), $0.80$ for Year-Only (`"YYYY"`).
+   - **Off-by-One Day Shifts**: $0.88$ for 1-day discrepancy, $0.78$ for 2-day discrepancy (accommodating opposing $\pm 1$ shifts across observations without false splits).
+   - **Month & Year Boundary Tolerance**: Evaluates boundary crossing with a 1-day buffer (e.g. Dec 31 $\leftrightarrow$ Jan 1, Oct 31 $\leftrightarrow$ Nov 1).
+   - **Missing DOB**: $0.50$ (uninformative neutral baseline).
+   - **Confirmed Biological Conflict**: $> 2$ days discrepancy or incompatible years/months sets $S_{\text{dob}} = 0.0$ and triggers `dob_conflict = True` (hard cannot-link block).
+   - *(Detailed documentation in [`DateOfBirth.md`](file:///home/jeromemassot/Projects/Trajectories/DateOfBirth.md))*
 
-3. **Email Address Agreement ($S_{\text{email}} \in [0, 1]$)**:
-   - **Accumulative Attribute**: An individual may have zero, one, or several email addresses, which are naturally appended to their collection over time (e.g., personal email followed later by work or secondary email).
-   - Shared email address: $1.0$ (strong identity anchor).
-   - Disjoint email addresses: $0.2$ (mild negative pull, but not disqualifying as individuals often acquire new addresses).
-   - Missing email on either record: $0.5$ (uninformative neutral evidence).
+3. **Email Address Agreement & Lifecycle Evolution ($S_{\text{email}} \in [0, 1]$)**:
+   - **Realistic Evolution Model**: Individuals typically surface one active personal email address and at most one professional work email per observation. Personal emails evolve over time (e.g. surname changes upon marriage or domain transitions), while work emails are active only during employment.
+   - Shared active email address: $1.00$ (strong identity anchor).
+   - Disjoint email addresses: $0.20$ (mild negative pull, relaxing over time).
+   - Missing email on either record: $0.50$ (uninformative neutral evidence).
 
 4. **Phone Number Agreement & Temporal Reallocation ($S_{\text{phone}} \in [0, 1]$)**:
    - **Transient & Reallocated Attribute**: In most scenarios, only one phone number is active at time $t$ (the latest added), because old phone numbers are relinquished and reallocated by telecom carriers to other people after quarantine. However, some individuals maintain multiple active phone numbers concurrently (e.g. personal mobile and business line).
@@ -133,25 +138,27 @@ For each candidate pair $(O_i, O_j)$, the engine evaluates six complementary dim
    - Disjoint phone numbers: $0.5 - 0.3 \times \exp(-\Delta t / \tau_{\text{phone}})$ (penalizes different active phones on the same day, relaxing toward neutral over years).
    - Missing phone on either record: $0.5$ (neutral).
 
-5. **Spatio-Temporal Continuity Kernel ($K_{\text{st}} \in [0, 1]$)**:
-   - Physical human mobility exhibits natural decay over time and distance:
-     $$K_{\text{st}}(O_i, O_j) = \exp\left(-\frac{\Delta t}{\tau}\right) \times \exp\left(-\frac{\Delta d}{\sigma}\right)$$
-     where $\Delta t$ is elapsed days, $\Delta d$ is geographic distance (calculated via the great-circle **Haversine formula**), $\tau = 365\text{ days}$, and $\sigma = 80\text{ km}$.
-   - Missing geographic coordinates return a neutral baseline ($0.4$) rather than an artificial zero-distance proximity reward.
+5. **Dual-Regime Spatial Locality & Relocation Plausibility ($S_{\text{spatial\_locality}}, S_{\text{reloc\_plaus}} \in [0, 1]$)**:
+   - Replaced continuous $km/h$ velocity with human-centric spatial modeling across two regimes:
+     - **Regime 1: Local Habitual Activity ($d \le 50\text{ km}$)**: Daily commuting and living patterns modeled with exponential distance decay:
+       $$S_{\text{spatial\_locality}} = 0.5 + 0.5 \times \exp\left(-\frac{\Delta t}{180}\right) \times \exp\left(-\frac{d}{25}\right), \quad S_{\text{reloc\_plaus}} = 1.0$$
+     - **Regime 2: Inter-City Relocations ($d > 50\text{ km}$)**: Relocation plausibility evaluated based on elapsed time and anchor continuity. Rapid alternation between distant cities without anchor continuity ($\Delta t < 14\text{ days}$) is heavily penalized ($0.10$), whereas relocations separated by weeks or months receive plausible scores ($0.70$–$0.80$).
+     - **Kinematic Impossibility**: Same-day sightings across distant cities ($d > 50\text{ km}, \Delta t = 0\text{ days}$) trigger a hard cannot-link block.
+   - *(Detailed documentation in [`RelocationBehavior.md`](file:///home/jeromemassot/Projects/Trajectories/RelocationBehavior.md))*
 
 6. **Co-occurrence & Context ($S_{\text{context}} \in [0, 1]$)**:
-   - Shared persistent token: $+0.98$ (near-certain anchor).
+   - Shared persistent hardware / ad token (12-character SHA-256 digital fingerprint): $+0.98$ (can be toggled on/off in UI to evaluate clustering impact).
    - Shared household ID: $+0.35$ (strong family continuity).
    - Shared employer ID: $+0.30$ (professional continuity).
 
 #### Logistic Squashing & Disqualification Multipliers
 The evidence dimensions are combined into a linear logit and transformed through the standard logistic function:
-$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_e(S_{\text{email}} - 0.5) + w_p(S_{\text{phone}} - 0.5) + w_{st}(K_{\text{st}} - 0.4) + w_c S_{\text{context}}\right)\right)}$$
+$$P(\text{same entity}) = \frac{1}{1 + \exp\left(-\left(w_n(S_{\text{name}} - 0.5) + w_d(S_{\text{dob}} - 0.5) + w_e(S_{\text{email}} - 0.5) + w_p(S_{\text{phone}} - 0.5) + w_{sl}(S_{\text{spatial\_locality}} - 0.5) + w_{rp}(S_{\text{reloc\_plaus}} - 0.5) + w_c S_{\text{context}}\right)\right)}$$
 
 Near-immutable biological and physical laws are **disqualifying**, not merely additive votes:
 - If a confirmed DOB mismatch exists, the probability is crushed multiplicatively:
   $$P \leftarrow P \times \exp(-w_{\text{dob-conflict}})$$
-- If the required velocity between two observations exceeds physical limits ($v > 950\text{ km/h}$, commercial jet speed), the probability is smoothly crushed proportional to the velocity overshoot.
+- If two observations violate kinematic possibility (same day, distant cities $>50\text{ km}$), the pair is hard-blocked ($P \to 0$, Cannot-Link enforced).
 
 ---
 
@@ -189,7 +196,7 @@ graph LR
 2. An edge between cluster $C_1$ and cluster $C_2$ is merged **if and only if** no member in $C_1$ has a **cannot-link constraint** with any member in $C_2$.
 3. Cannot-link constraints include:
    - **Confirmed DOB Mismatch**: People cannot have two different birthdates.
-   - **Anti-Reflexive Kinematic Violation**: The same individual cannot appear on the same calendar day in two distant cities ($>150\text{ km}$ apart).
+   - **Anti-Reflexive Kinematic Violation**: The same individual cannot appear on the same calendar day in two distant cities ($>50\text{ km}$ apart).
 
 This constraint is enforced **transitively across entire clusters**, ensuring pristine cluster purity.
 
@@ -211,42 +218,86 @@ At the default operating threshold ($0.65$), the engine achieves:
 
 ---
 
+## Synthetic Data Generation & Human Mobility Archetypes
+
+The synthetic observation feed ([`backend/data_gen.py`](backend/data_gen.py)) models realistic human mobility patterns, real-world data collection noise, and adversarial confounders across 33 authentic US cities.
+
+```
+                                  +---------------------------------------+
+                                  |      Human Mobility Archetypes        |
+                                  +---------------------------------------+
+                                                      |
+            +-----------------------------------------+-----------------------------------------+
+            |                                         |                                         |
+            v                                         v                                         v
++-----------------------+                 +-----------------------+                 +-----------------------+
+|      Category 1       |                 |      Category 2       |                 |      Category 3       |
+|  Neighborhood Stayers |                 |   Intra-State Movers  |                 | Inter-State Migrators |
+|     (E001 - E006)     |                 |     (E007 - E012)     |                 |     (E013 - E018)     |
++-----------------------+                 +-----------------------+                 +-----------------------+
+| * Single neighborhood |                 | * 2-3 cities within   |                 | * 2-4 states across   |
+| * Relocations < 5 km  |                 |   same state          |                 |   sampling period     |
+| * Local venue hops    |                 | * Area code updates   |                 | * Long-distance moves |
++-----------------------+                 +-----------------------+                 +-----------------------+
+```
+
+1. **The Three Human Mobility Archetypes**:
+   - **Category 1: Neighborhood Stayers**: Reside long-term within a single metropolitan district ($< 5\text{ km}$ radius) rotating through local venues. Moves remain strictly within the neighborhood.
+   - **Category 2: Intra-State Movers**: Relocate between 2 to 3 cities exclusively within their state of origin, updating phone area codes upon moving.
+   - **Category 3: Inter-State Migrators**: Undertake multi-year macro migrations across 2 to 4 distinct states.
+2. **Adversarial Confounders (40% of Population)**:
+   - **Household Pairs**: Family members or partners sharing residential address, household ID, and landline, but separated by DOB and mobile records.
+   - **Name Collisions**: Unrelated individuals with identical names living in different states with contemporaneous observations.
+   - **Recycled Phone Numbers**: Phone numbers released by one individual and reallocated years later to an unrelated person in a different city.
+3. **Real-World Date of Birth Noise**:
+   - Emits a mix of exact full dates (`"YYYY-MM-DD"`), year-only (`"YYYY"`), year-month (`"YYYY-MM"`), and $\pm 1$ day shifted dates to simulate collection errors.
+4. **Anti-Oscillation Guarantee**:
+   - Observations cycle through verified authentic street addresses, guaranteeing that consecutive observations for an individual never repeat identical coordinates ($c_t \neq c_{t-1}$).
+- *(Detailed documentation in [`DataGeneration.md`](file:///home/jeromemassot/Projects/Trajectories/DataGeneration.md), [`RelocationBehavior.md`](file:///home/jeromemassot/Projects/Trajectories/RelocationBehavior.md), and [`DateOfBirth.md`](file:///home/jeromemassot/Projects/Trajectories/DateOfBirth.md))*
+
+---
+
 ## Application Functionalities & User Interface
 
-The application features a single-page web interface served directly by the Python backend:
+The application features a single-page web interface served directly by the zero-dependency Python backend:
 
 ### 1. Live Pipeline Controls & Real-Time Tuning
-- **Match Threshold Slider**: Adjust the acceptance threshold between $0.05$ and $0.95$.
-- **Dimension Weight Sliders**: Fine-tune the relative importance of Name Similarity, DOB Match, Email Match, Phone Match (with temporal decay), Spatio-temporal Kernel, Co-occurrence, Kinematic Penalty, and DOB Conflict Penalty.
-- **Precomputed In-Memory Feature Cache**: Adjusting sliders re-scores and re-clusters the dataset in **$<15\text{ ms}$**, providing smooth, instantaneous visual feedback.
+- **Match Threshold Slider**: Adjust the acceptance threshold between $0.05$ and $0.995$.
+- **Dimension Weight Sliders**: Fine-tune the relative importance of Name Similarity, DOB Match, Email Match, Phone Match (with temporal decay), Spatial Locality Affinity, Relocation Plausibility, Co-occurrence Context, and DOB Conflict Penalty.
+- **Persistent Hardware / Ad Token Toggle**: Enable or disable digital fingerprints with a single checkbox to observe clustering impact with and without hardware identifiers.
+- **Precomputed Feature Cache**: Adjusting sliders re-evaluates the dataset in **$<15\text{ ms}$**, providing instantaneous visual feedback.
 
-### 2. Live Performance Metrics
-- Instant display of Total Observations, True Entities, Predicted Clusters, Precision, Recall, and $F_1$ Score.
+### 2. Interactive Synthetic Data Generator UI
+- **Dedicated Navigation Tab**: Access the complete data generator directly from the web interface.
+- **One-Click Presets**:
+  - 🎯 *Standard Benchmark* (Seed 42, 30 entities, 306 observations)
+  - ✨ *Clean / Zero Noise* (100% full dates, 0% typos, 0% dropped fields)
+  - ⚡ *Challenging Noise* (High typos, off-by-one DOBs, 20% dropped fields)
+  - 🚀 *High Mobility* (Enriched intra-state and inter-state relocation cohorts)
+  - 🔬 *Small Test Set* (Fast 15-entity test population)
+- **Fine-Grained Levers**: Tweak entity counts per archetype, confounder pairs, PRNG seed (with `🎲 Randomize`), DOB noise formats, name typos, field drop rates, and digital token rates.
+- **Live Dataset Generation**: Click **"⚡ Generate & Reload Dataset"** to invoke `POST /api/generate`. The backend generates the new population, recomputes candidate features, and updates all views (entities, map, pairs, observations, metrics) live without page reload.
+- **Generation Summary Dashboard**: Instant statistical breakdown of generated observation counts, archetypes, confounders, DOB quality distribution, and digital token coverage.
 
 ### 3. Dynamic Interactive Trajectory Map (Leaflet.js)
-- **Real Geographical Tiles**: Interactive zoom, pan, and exploration powered by Leaflet.js with authentic OpenStreetMap tiles (free of external API keys or watermarks) and adaptive dark-mode filtering.
-- **Accurate Address-to-Coordinate Geolocation**: Every observation features verified, genuine street addresses whose latitude and longitude coordinates point strictly to terrestrial locations (eliminating water landing pins in Biscayne Bay, rivers, or harbors).
-- **Timeline Playback Engine**: Complete playback controller (`Play`, `Pause`, `Prev Step`, `Next Step`, `Replay`, `Scrubber Slider`, and `Speed Multiplier 0.5x–4x`) allowing users to watch an individual's journey unfold chronologically across time and space.
-- **Active Waypoint Halo & Sequential Reveal**: The timeline dynamically reveals waypoints and trajectory segments step-by-step, highlighting the current observation with an animated pulsing radar halo.
-- **Segment Link Explainability Tooltips**: Hovering over any trajectory connecting line displays an interactive, sticky tooltip detailing the exact entity resolution probability score ($P(\text{Match})$), linkage verdict, and multi-attribute feature breakdown (name, DOB, email, phone with reallocation decay, transit velocity, spatial co-occurrence).
-- **Real-Time Link Explanation Card**: A floating glassmorphic panel provides an immediate, plain-English rationale for why consecutive observations were matched as the same person, complete with color-coded metric badges.
-- **Color-Coded Waypoints**: Waypoint markers shift in color from cool blue (earliest observation) to warm coral (most recent observation) to visualize temporal progression.
-- **Interactive Observation Popups**: Clicking any waypoint displays full observation metadata: Date, City, Street Address, DOB, Household ID, Employer ID, Emails, Phones, and Ground Truth ID.
-- **"Fit Route" Button**: Instantly centers and zooms the camera to frame the selected individual's path.
-- **Dataset Context Layer**: Subtle background markers plot all other sightings across the country on hover.
+- **Authentic OpenStreetMap Tiles**: Interactive zoom, pan, and exploration with adaptive light and dark theme filtering.
+- **Timeline Playback Engine**: Complete controller (`Play`, `Pause`, `⏮ Prev Step`, `⏭ Next Step`, `↺ Replay`, `Scrubber Slider`, and `Speed Multiplier 0.5x–2x`) to watch an individual's journey unfold chronologically.
+- **Sequential Reveal & Active Waypoint Halo**: Dynamically reveals path segments step-by-step, highlighting the current sighting with an animated pulsing radar halo.
+- **Segment Link Explainability Tooltips**: Hovering over any trajectory path segment displays an interactive tooltip with the exact $P(\text{Match})$ probability score, linkage verdict, and multi-attribute breakdown.
+- **Real-Time Link Explanation Card**: A floating glassmorphic panel provides plain-English rationale for why consecutive sightings were matched as the same person.
+- **Entity Trajectory Observations Table**: A dedicated table below the map displaying all observations of the active entity; clicking any row immediately jumps to that waypoint on the map.
+- **Color-Coded Waypoints & Popups**: Markers transition from cool blue (earliest sighting) to warm coral (most recent sighting) with interactive popups displaying full observation metadata.
 
-### 4. Display Mode Switcher (System / Light / Dark)
+### 4. Candidate Pairs Audit Trail
+- Inspector table listing every candidate pair generated by blocking.
+- Displays exact mathematical sub-scores (`first_name_sim`, `last_name_sim`, `dob_sim`, `email_sim`, `phone_sim`, `locality`, `cooccurrence`, `reloc_plaus`) and status (`linked`, `candidate`, `hard-blocked`, `dob-conflict`).
+
+### 5. Raw Observations Feed
+- Complete tabular view of the input data feed, including accumulative email addresses, active phone numbers, and hidden ground truth labels.
+
+### 6. Display Mode Switcher (System / Light / Dark)
 - Segmented toggle (`💻 System`, `☀️ Light`, `🌙 Dark`) in the top bar.
-- Automatically swaps interface colors and **map tile themes** in real-time.
-- Persists user preferences in `localStorage`.
-
-### 5. Candidate Pairs Audit Trail
-- A dedicated inspector table listing every candidate pair generated by blocking.
-- Displays exact mathematical sub-scores (`first_name_sim`, `last_name_sim`, `dob_sim`, `email_sim`, `phone_sim`, `st_kernel`, `cooccurrence`, `velocity_kmh`) and status (`linked`, `candidate`, `hard-blocked`, `dob-conflict`).
-- Provides complete explainability for why any two records were linked or rejected.
-
-### 6. Raw Observations Feed
-- Searchable and sortable tabular view of the input data feed, including accumulative email addresses and active phone snapshots.
+- Automatically swaps interface colors and **map tile themes** in real-time, persisting preferences in `localStorage`.
 
 ---
 
@@ -255,27 +306,30 @@ The application features a single-page web interface served directly by the Pyth
 ```
 Trajectories/
 ├── backend/
-│   ├── resolution.py        # Core resolution engine: blocking, scoring, clustering, evaluation
-│   ├── server.py            # Zero-dependency HTTP server and JSON REST API
-│   ├── data_gen.py          # Synthetic population & noisy observation feed generator
+│   ├── resolution.py          # Core resolution engine: blocking, scoring, clustering, evaluation
+│   ├── server.py              # Zero-dependency HTTP server, static file server & REST API (/api/generate)
+│   ├── data_gen.py            # Parameterized synthetic population & noisy observation generator
 │   ├── tests/
-│   │   └── test_resolution.py # Automated unit & integration test suite
+│   │   ├── test_resolution.py # Automated unit tests for engine, scoring & clustering
+│   │   └── test_data_gen.py   # Automated unit tests for generator parameterization & summaries
 │   └── data/
-│       └── mock_observations.json # Pre-generated benchmark observation dataset
+│       └── mock_observations.json # Pre-generated benchmark dataset (306 obs, 30 entities)
 ├── frontend/
-│   ├── index.html           # Single-page interface markup with Leaflet integration
-│   ├── styles.css           # Responsive styling with light/dark theme variables
-│   └── app.js               # Frontend controller, state manager, and map renderer
-├── .gitignore               # Standard Python and editor exclusions
-├── README.md                # Comprehensive documentation
-└── THOUGHTS.md              # Technical design notes, complexity analysis & roadmap
+│   ├── index.html             # Web application markup with Leaflet & Data Generator tab
+│   ├── styles.css             # Responsive styling with light/dark theme CSS variables
+│   └── app.js                 # State manager, map timeline player, and generator controller
+├── DataGeneration.md          # In-depth design documentation for 3 mobility archetypes & kinematics
+├── RelocationBehavior.md      # In-depth design documentation for dual-regime spatial modeling
+├── DateOfBirth.md             # In-depth design documentation for DOB noise & boundary tolerance
+├── README.md                  # Platform overview & comprehensive documentation
+└── THOUGHTS.md                # Technical design notes, complexity analysis & roadmap
 ```
 
 ### Key Modules:
-- [`backend/resolution.py`](file:///home/jeromemassot/Projects/Trajectories/backend/resolution.py): Independent algorithmic core with zero web dependencies. Contains hand-rolled string metrics (Jaro-Winkler, Soundex), Haversine spatial calculations, logistic squashing, Union-Find with cannot-link constraints, and $O(N)$ contingency evaluation.
-- [`backend/server.py`](file:///home/jeromemassot/Projects/Trajectories/backend/server.py): Implemented using Python's standard `http.server.ThreadingHTTPServer`. Precomputes invariant candidate features at startup to enable sub-15ms re-scoring on live parameter changes.
-- [`backend/data_gen.py`](file:///home/jeromemassot/Projects/Trajectories/backend/data_gen.py): Generates synthetic populations specifically tailored with realistic confounders (marriage surname changes, moves, simultaneous disruptions, name collisions, and sibling entity chimerism).
-- [`frontend/app.js`](file:///home/jeromemassot/Projects/Trajectories/frontend/app.js): Vanilla JavaScript controller managing UI state, API calls, dynamic Leaflet map tile rendering, and theme switching.
+- [`backend/resolution.py`](file:///home/jeromemassot/Projects/Trajectories/backend/resolution.py): Independent algorithmic core with zero external dependencies. Contains hand-rolled string metrics (Jaro-Winkler, Soundex), Haversine spatial calculations, dual-regime spatial modeling, boundary-tolerant DOB scoring, Union-Find with transitive cannot-link constraints, and $O(N)$ contingency evaluation.
+- [`backend/server.py`](file:///home/jeromemassot/Projects/Trajectories/backend/server.py): Implemented using Python's standard `http.server.ThreadingHTTPServer`. Exposes `/api/dataset`, `/api/resolve`, and `/api/generate`. Precomputes invariant candidate features to enable sub-15ms re-scoring on live parameter changes.
+- [`backend/data_gen.py`](file:///home/jeromemassot/Projects/Trajectories/backend/data_gen.py): Fully parameterized generator producing authentic synthetic populations across three mobility archetypes, confounder cohorts, realistic DOB noise, and verified street addresses across 33 US cities.
+- [`frontend/app.js`](file:///home/jeromemassot/Projects/Trajectories/frontend/app.js): Vanilla JavaScript controller managing UI state, API communication, dynamic Leaflet map tile rendering, timeline animation playback, and generator controls.
 
 ---
 
@@ -296,30 +350,30 @@ Trajectories/
 2. **Open your browser**:
    Navigate to **[http://localhost:8000/](http://localhost:8000/)**.
 
-3. **(Optional) Regenerate mock data**:
-   To generate a fresh synthetic observation feed:
-   ```bash
-   python3 backend/data_gen.py
-   ```
+3. **Generate & test new datasets**:
+   - Directly from the web interface: Open the **Data Generator** tab, adjust parameters or select a preset, and click **"⚡ Generate & Reload Dataset"**.
+   - Or from the command line:
+     ```bash
+     python3 backend/data_gen.py
+     ```
 
 ---
 
 ## Automated Testing Suite
 
-The repository includes a comprehensive unit and integration test suite covering phonetic matching, kinematics, neutral missing value baselines, constraint propagation, and end-to-end benchmark resolution:
+The repository includes a comprehensive unit and integration test suite covering phonetic matching, kinematics, neutral missing value baselines, boundary-tolerant DOB matching, generator parameterization, and end-to-end benchmark resolution:
 
 ```bash
 python3 -m unittest discover -s backend/tests -v
 ```
 
-### Test Coverage Highlights:
-- `test_jaro_similarity_identical_and_empty`: Empty and identical string edge cases.
-- `test_jaro_winkler_prefix`: Prefix scaling and transposition handling.
-- `test_soundex`: US Census standard phonetic codes and vowel separators.
-- `test_name_similarity_nicknames_and_phonetics`: Nickname table equivalences.
-- `test_haversine_known_distance`: Great-circle distance calculations.
-- `test_kinematic_check_anti_reflexive`: Same-day multi-city impossible travel detection.
-- `test_kinematic_check_consecutive_days`: Legitimate consecutive-day domestic travel validation.
-- `test_spatiotemporal_kernel_missing_coordinates`: Unbiased baseline handling for missing locations.
+### Test Coverage Highlights (29 Tests):
+- `test_dob_score`: Exact full matches, partial year-month, partial year-only, $\pm 1$ day off, $\pm 2$ days off, boundary transitions (Dec 31 $\leftrightarrow$ Jan 1), and confirmed conflicts.
+- `test_observation_dob_noise_diversity`: Verifies presence of year-only, year-month, and shifted DOB records in synthetic data.
+- `test_make_population_defaults`: Validates 306 observations across 30 entities on standard benchmark.
+- `test_make_population_clean_zero_noise`: Validates 100% full DOBs and 100% address retention in zero-noise mode.
+- `test_make_population_custom_archetypes`: Validates arbitrary custom archetype counts and entity mixtures.
+- `test_summarize_dataset`: Validates statistical summarization metrics.
+- `test_kinematic_check_anti_reflexive`: Same-day multi-city impossible travel detection ($>50\text{ km}$).
 - `test_transitive_dob_cannot_link`: Enforcing cannot-link constraints across intermediate bridging records.
 - `test_benchmark_metrics_reach_100_percent_f1`: Verifying 100% Precision, Recall, and $F_1$ across the benchmark dataset.

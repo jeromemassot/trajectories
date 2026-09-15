@@ -136,12 +136,67 @@ class TestSpatioTemporalAndKinematics(unittest.TestCase):
 
 class TestCooccurrenceAndDOB(unittest.TestCase):
     def test_dob_score(self):
-        # Match
+        # Exact full match
         score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-05-15"})
         self.assertEqual(score, 1.0)
         self.assertFalse(conflict)
 
-        # Conflict
+        # 1-day off (timezone or recording shift)
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-05-14"})
+        self.assertEqual(score, 0.88)
+        self.assertFalse(conflict)
+
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-05-16"})
+        self.assertEqual(score, 0.88)
+        self.assertFalse(conflict)
+
+        # 1-day off across month/year boundary (Dec 31 vs Jan 1)
+        score, conflict = dob_score({"dob": "1989-12-31"}, {"dob": "1990-01-01"})
+        self.assertEqual(score, 0.88)
+        self.assertFalse(conflict)
+
+        # 2-days off (opposing shifts +/- 1 day from true date)
+        score, conflict = dob_score({"dob": "1990-05-14"}, {"dob": "1990-05-16"})
+        self.assertEqual(score, 0.78)
+        self.assertFalse(conflict)
+
+        # Partial date: year and month
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-05"})
+        self.assertEqual(score, 0.90)
+        self.assertFalse(conflict)
+
+        score, conflict = dob_score({"dob": "1990-05"}, {"dob": "1990-05"})
+        self.assertEqual(score, 0.90)
+        self.assertFalse(conflict)
+
+        # Partial date: year only
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990"})
+        self.assertEqual(score, 0.80)
+        self.assertFalse(conflict)
+
+        score, conflict = dob_score({"dob": "1990"}, {"dob": "1990"})
+        self.assertEqual(score, 0.80)
+        self.assertFalse(conflict)
+
+        # Conflicts: > 2 days difference
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-05-18"})
+        self.assertEqual(score, 0.0)
+        self.assertTrue(conflict)
+
+        # Conflicts: different months
+        score, conflict = dob_score({"dob": "1990-05"}, {"dob": "1990-06"})
+        self.assertEqual(score, 0.0)
+        self.assertTrue(conflict)
+
+        score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1990-06-15"})
+        self.assertEqual(score, 0.0)
+        self.assertTrue(conflict)
+
+        # Conflicts: different years
+        score, conflict = dob_score({"dob": "1990"}, {"dob": "1985"})
+        self.assertEqual(score, 0.0)
+        self.assertTrue(conflict)
+
         score, conflict = dob_score({"dob": "1990-05-15"}, {"dob": "1985-02-10"})
         self.assertEqual(score, 0.0)
         self.assertTrue(conflict)
@@ -357,6 +412,68 @@ class TestEndToEndResolution(unittest.TestCase):
             w_count = len(emails) - p_count
             self.assertLessEqual(p_count, 1, f"Observation {o['observation_id']} has > 1 personal email: {emails}")
             self.assertLessEqual(w_count, 1, f"Observation {o['observation_id']} has > 1 work email: {emails}")
+
+    def test_cooccurrence_and_spatial_persistent_token_toggle(self):
+        o1 = {"persistent_token": "abc123token", "household_id": None, "employer_id": None,
+              "lat": 40.7128, "lon": -74.0060, "timestamp": "2020-01-01"}
+        o2 = {"persistent_token": "abc123token", "household_id": None, "employer_id": None,
+              "lat": 34.0522, "lon": -118.2437, "timestamp": "2020-01-10"}  # 9 days apart, cross-country
+
+        # With persistent token enabled:
+        self.assertEqual(cooccurrence_score(o1, o2, use_persistent_tokens=True), 0.98)
+        _, reloc_with, _, _ = evaluate_spatial_and_relocation(o1, o2, use_persistent_tokens=True)
+        # Rapid move supported by anchor has plausibility 0.80 / supported
+        self.assertEqual(reloc_with, 0.80)
+
+        # With persistent token disabled:
+        self.assertEqual(cooccurrence_score(o1, o2, use_persistent_tokens=False), 0.0)
+        _, reloc_without, _, _ = evaluate_spatial_and_relocation(o1, o2, use_persistent_tokens=False)
+        # Rapid move without anchor is implausible: 0.10
+        self.assertEqual(reloc_without, 0.10)
+
+    def test_resolve_persistent_token_toggle(self):
+        # Baseline threshold 0.95:
+        # With token enabled -> 30 clusters, F1 = 1.000
+        res_with = resolve(self.observations, threshold=0.95, use_persistent_tokens=True)
+        self.assertEqual(res_with["metrics"]["n_predicted_clusters"], 30)
+        self.assertEqual(res_with["metrics"]["pairwise_f1"], 1.0)
+        self.assertGreater(res_with["metrics"]["token_anchored_pairs"], 0)
+        self.assertTrue(res_with["use_persistent_tokens"])
+
+        # With token disabled -> clusters begin fragmenting at threshold 0.95
+        res_without = resolve(self.observations, threshold=0.95, use_persistent_tokens=False)
+        self.assertGreater(res_without["metrics"]["n_predicted_clusters"], 30)
+        self.assertLess(res_without["metrics"]["pairwise_f1"], 1.0)
+        self.assertFalse(res_without["use_persistent_tokens"])
+
+        # At threshold 0.98, disabling token causes significantly more fragmentation
+        res_with_98 = resolve(self.observations, threshold=0.98, use_persistent_tokens=True)
+        res_without_98 = resolve(self.observations, threshold=0.98, use_persistent_tokens=False)
+        self.assertGreater(
+            res_without_98["metrics"]["n_predicted_clusters"],
+            res_with_98["metrics"]["n_predicted_clusters"]
+        )
+
+    def test_observation_dob_noise_diversity(self):
+        import re
+        from collections import defaultdict
+        year_only = sum(1 for o in self.observations if o.get("dob") and re.match(r"^\d{4}$", o["dob"]))
+        year_month = sum(1 for o in self.observations if o.get("dob") and re.match(r"^\d{4}-\d{2}$", o["dob"]))
+        full_date = sum(1 for o in self.observations if o.get("dob") and re.match(r"^\d{4}-\d{2}-\d{2}$", o["dob"]))
+
+        self.assertGreater(year_only, 0, "No year-only DOBs found in dataset")
+        self.assertGreater(year_month, 0, "No year-month DOBs found in dataset")
+        self.assertGreater(full_date, 0, "No full DOBs found in dataset")
+
+        # Verify that some individuals have multiple distinct full dates (+/- 1 day shifts)
+        entity_dobs = defaultdict(set)
+        for o in self.observations:
+            d = o.get("dob")
+            if d and len(d) == 10:
+                entity_dobs[o["entity_id_truth"]].add(d)
+
+        shifted = [eid for eid, ds in entity_dobs.items() if len(ds) > 1]
+        self.assertGreaterEqual(len(shifted), 5, f"Expected multiple entities with 1-day shifts, got {len(shifted)}")
 
 
 if __name__ == "__main__":

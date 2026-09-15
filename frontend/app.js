@@ -3,8 +3,8 @@
 
   const DEFAULT_WEIGHTS = {
     name: 3.0, dob: 1.5, email: 2.0, phone: 1.8,
-    spatiotemporal: 1.2, cooccurrence: 2.2,
-    kinematic_penalty: 4.0, dob_conflict_penalty: 5.0,
+    spatial_locality: 1.2, relocation_plausibility: 1.5,
+    cooccurrence: 2.2, dob_conflict_penalty: 5.0,
   };
   const DEFAULT_THRESHOLD = 0.65;
 
@@ -15,6 +15,8 @@
     weights: { ...DEFAULT_WEIGHTS },
     threshold: DEFAULT_THRESHOLD,
     showTruth: true,
+    usePersistentTokens: true,
+    pairOnlyToken: false,
     map: null,
     tileLayer: null,
     currentTileTheme: null,
@@ -36,6 +38,7 @@
     bindControls();
     bindTabs();
     initTimelineControls();
+    bindGeneratorControls();
     const health = await fetchJSON("/api/health");
     $("#statusBadge").textContent = `${health.n_observations} observations loaded`;
 
@@ -120,19 +123,21 @@
     const thresholdInput = $("#threshold");
     thresholdInput.addEventListener("input", () => {
       state.threshold = parseFloat(thresholdInput.value);
-      $("#thresholdVal").textContent = state.threshold.toFixed(2);
+      $("#thresholdVal").textContent = state.threshold.toFixed(3);
       debouncedResolve();
     });
-    $("#thresholdVal").textContent = state.threshold.toFixed(2);
+    $("#thresholdVal").textContent = state.threshold.toFixed(3);
 
     document.querySelectorAll(".weight").forEach((input) => {
       const key = input.dataset.key;
       input.value = state.weights[key];
       const label = $(`#w_${key}_val`);
-      label.textContent = Number(input.value).toFixed(1);
+      if (label) {
+        label.textContent = Number(input.value).toFixed(1);
+      }
       input.addEventListener("input", () => {
         state.weights[key] = parseFloat(input.value);
-        label.textContent = input.value;
+        if (label) label.textContent = input.value;
         debouncedResolve();
       });
     });
@@ -141,13 +146,25 @@
       state.weights = { ...DEFAULT_WEIGHTS };
       state.threshold = DEFAULT_THRESHOLD;
       thresholdInput.value = state.threshold;
-      $("#thresholdVal").textContent = state.threshold.toFixed(2);
+      $("#thresholdVal").textContent = state.threshold.toFixed(3);
+      state.usePersistentTokens = true;
+      const tokenToggle = $("#tokenToggle");
+      if (tokenToggle) tokenToggle.checked = true;
       document.querySelectorAll(".weight").forEach((input) => {
         input.value = state.weights[input.dataset.key];
-        $(`#w_${input.dataset.key}_val`).textContent = input.value;
+        const label = $(`#w_${input.dataset.key}_val`);
+        if (label) label.textContent = input.value;
       });
       runResolve();
     });
+
+    const tokenToggle = $("#tokenToggle");
+    if (tokenToggle) {
+      tokenToggle.addEventListener("change", (e) => {
+        state.usePersistentTokens = e.target.checked;
+        debouncedResolve();
+      });
+    }
 
     $("#truthToggle").addEventListener("change", (e) => {
       state.showTruth = e.target.checked;
@@ -159,6 +176,13 @@
     $("#pairMinScore").addEventListener("input", renderPairs);
     $("#pairOnlyLinked").addEventListener("change", renderPairs);
     $("#pairOnlyBlocked").addEventListener("change", renderPairs);
+    const pairOnlyToken = $("#pairOnlyToken");
+    if (pairOnlyToken) {
+      pairOnlyToken.addEventListener("change", (e) => {
+        state.pairOnlyToken = e.target.checked;
+        renderPairs();
+      });
+    }
     $("#mapEntitySelect").addEventListener("change", renderMap);
 
     const mapObsFilter = $("#mapObsFilterEntity");
@@ -198,7 +222,11 @@
     const result = await fetchJSON("/api/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threshold: state.threshold, weights: state.weights }),
+      body: JSON.stringify({
+        threshold: state.threshold,
+        weights: state.weights,
+        use_persistent_tokens: state.usePersistentTokens,
+      }),
     });
     state.result = result;
     buildPairMap();
@@ -220,6 +248,15 @@
     $("#mPrec").textContent = m.pairwise_precision.toFixed(3);
     $("#mRec").textContent = m.pairwise_recall.toFixed(3);
     $("#mF1").textContent = m.pairwise_f1.toFixed(3);
+
+    const tb = $("#tokenCountBadge");
+    if (tb) {
+      const cnt = m.token_anchored_pairs !== undefined ? m.token_anchored_pairs : 0;
+      tb.textContent = state.usePersistentTokens
+        ? `(${cnt} pairs anchored)`
+        : `(${cnt} pairs present, disabled)`;
+      tb.style.color = state.usePersistentTokens ? "var(--color-accent, #2563eb)" : "var(--color-muted, #888)";
+    }
   }
 
   // ------------------------------------------------------------- entities --
@@ -264,6 +301,7 @@
       addRow(dl, "Date span", `${e.date_span[0]} → ${e.date_span[1]}`);
       if (state.showTruth) addRow(dl, "Ground truth", e.ground_truth_entities.join(", "));
       card.appendChild(dl);
+
       list.appendChild(card);
     });
   }
@@ -282,11 +320,13 @@
     const minScore = parseFloat($("#pairMinScore").value || 0);
     const onlyLinked = $("#pairOnlyLinked").checked;
     const onlyBlocked = $("#pairOnlyBlocked").checked;
+    const onlyToken = state.pairOnlyToken;
 
     const rows = state.result.pairs.filter((p) => {
       if (p.score < minScore) return false;
       if (onlyLinked && !p.linked) return false;
       if (onlyBlocked && !p.hard_block) return false;
+      if (onlyToken && !p.features.token_shared) return false;
       return true;
     }).sort((a, b) => b.score - a.score);
 
@@ -298,7 +338,21 @@
       const f = p.features;
       const isBlocked = p.hard_block || f.dob_conflict;
       tr.className = p.hard_block ? "blocked" : (f.dob_conflict ? "blocked dob-conflict" : (p.linked ? "linked" : ""));
-      const status = p.hard_block ? "hard-blocked" : (f.dob_conflict ? "dob-conflict" : (p.linked ? "linked" : "candidate"));
+      let status = p.hard_block ? "hard-blocked" : (f.dob_conflict ? "dob-conflict" : (p.linked ? "linked" : "candidate"));
+      if (p.linked && f.token_shared) {
+        status = state.usePersistentTokens ? "linked (token)" : "linked";
+      }
+
+      if (f.token_shared) {
+        tr.title = state.usePersistentTokens
+          ? "Anchored by persistent hardware/ad digital token"
+          : "Persistent digital token present on observations, but disabled by controls";
+      }
+
+      const coocText = f.token_shared
+        ? (state.usePersistentTokens ? `${f.cooccurrence.toFixed(2)} 🔑` : `${f.cooccurrence.toFixed(2)} (no token)`)
+        : f.cooccurrence.toFixed(2);
+
       const cells = [
         p.score.toFixed(3),
         p.observation_id_i, p.observation_id_j,
@@ -307,7 +361,7 @@
         f.email_sim !== undefined ? f.email_sim.toFixed(2) : "–",
         f.phone_sim !== undefined ? f.phone_sim.toFixed(2) : "–",
         f.spatial_locality !== undefined ? f.spatial_locality.toFixed(2) : (f.spatiotemporal_kernel !== undefined ? f.spatiotemporal_kernel.toFixed(2) : "–"),
-        f.cooccurrence.toFixed(2),
+        coocText,
         f.relocation_plausibility !== undefined ? f.relocation_plausibility.toFixed(2) : "–",
         status,
       ];
@@ -1157,6 +1211,361 @@
     timelineState.step = obs.length - 1;
     applyTimelineStep(timelineState.step, false);
     fitCurrentTrajectory();
+  }
+
+  // ---------------------------------------------------- data generator --
+  const GENERATOR_PRESETS = {
+    benchmark: {
+      seed: 42,
+      n_neighborhood: 6,
+      n_intrastate: 6,
+      n_interstate: 6,
+      n_household_pairs: 3,
+      n_name_collision_pairs: 2,
+      include_phone_reallocation: true,
+      enable_dob_noise: true,
+      rate_dob_year_only: 0.10,
+      rate_dob_year_month: 0.10,
+      rate_dob_shift: 0.12,
+      drop_dob_rate: 0.12,
+      enable_name_noise: true,
+      rate_first_noise: 0.35,
+      rate_last_noise: 0.15,
+      drop_address_rate: 0.10,
+      drop_phone_rate: 0.08,
+      drop_email_rate: 0.08,
+      token_rate: 0.60,
+      employer_rate: 0.70,
+    },
+    clean: {
+      seed: 42,
+      n_neighborhood: 6,
+      n_intrastate: 6,
+      n_interstate: 6,
+      n_household_pairs: 3,
+      n_name_collision_pairs: 2,
+      include_phone_reallocation: true,
+      enable_dob_noise: false,
+      rate_dob_year_only: 0.0,
+      rate_dob_year_month: 0.0,
+      rate_dob_shift: 0.0,
+      drop_dob_rate: 0.0,
+      enable_name_noise: false,
+      rate_first_noise: 0.0,
+      rate_last_noise: 0.0,
+      drop_address_rate: 0.0,
+      drop_phone_rate: 0.0,
+      drop_email_rate: 0.0,
+      token_rate: 0.80,
+      employer_rate: 0.80,
+    },
+    challenging: {
+      seed: 42,
+      n_neighborhood: 6,
+      n_intrastate: 6,
+      n_interstate: 6,
+      n_household_pairs: 4,
+      n_name_collision_pairs: 3,
+      include_phone_reallocation: true,
+      enable_dob_noise: true,
+      rate_dob_year_only: 0.20,
+      rate_dob_year_month: 0.20,
+      rate_dob_shift: 0.24,
+      drop_dob_rate: 0.20,
+      enable_name_noise: true,
+      rate_first_noise: 0.50,
+      rate_last_noise: 0.30,
+      drop_address_rate: 0.20,
+      drop_phone_rate: 0.18,
+      drop_email_rate: 0.18,
+      token_rate: 0.40,
+      employer_rate: 0.50,
+    },
+    high_mobility: {
+      seed: 42,
+      n_neighborhood: 3,
+      n_intrastate: 8,
+      n_interstate: 9,
+      n_household_pairs: 2,
+      n_name_collision_pairs: 2,
+      include_phone_reallocation: true,
+      enable_dob_noise: true,
+      rate_dob_year_only: 0.10,
+      rate_dob_year_month: 0.10,
+      rate_dob_shift: 0.12,
+      drop_dob_rate: 0.12,
+      enable_name_noise: true,
+      rate_first_noise: 0.35,
+      rate_last_noise: 0.15,
+      drop_address_rate: 0.10,
+      drop_phone_rate: 0.08,
+      drop_email_rate: 0.08,
+      token_rate: 0.60,
+      employer_rate: 0.70,
+    },
+    small: {
+      seed: 42,
+      n_neighborhood: 3,
+      n_intrastate: 3,
+      n_interstate: 3,
+      n_household_pairs: 1,
+      n_name_collision_pairs: 1,
+      include_phone_reallocation: true,
+      enable_dob_noise: true,
+      rate_dob_year_only: 0.10,
+      rate_dob_year_month: 0.10,
+      rate_dob_shift: 0.12,
+      drop_dob_rate: 0.12,
+      enable_name_noise: true,
+      rate_first_noise: 0.35,
+      rate_last_noise: 0.15,
+      drop_address_rate: 0.10,
+      drop_phone_rate: 0.08,
+      drop_email_rate: 0.08,
+      token_rate: 0.60,
+      employer_rate: 0.70,
+    },
+  };
+
+  function updateGeneratorLabels() {
+    const setVal = (id, val) => {
+      const el = $(`#${id}`);
+      if (el) el.textContent = val;
+    };
+    const getNum = (id) => parseFloat($(`#${id}`)?.value || 0);
+
+    setVal("gen_n_neighborhood_val", getNum("gen_n_neighborhood"));
+    setVal("gen_n_intrastate_val", getNum("gen_n_intrastate"));
+    setVal("gen_n_interstate_val", getNum("gen_n_interstate"));
+
+    const hh = getNum("gen_n_household_pairs");
+    setVal("gen_n_household_pairs_val", `${hh} pairs (${hh * 2} entities)`);
+
+    const nc = getNum("gen_n_name_collision_pairs");
+    setVal("gen_n_name_collision_pairs_val", `${nc} pairs (${nc * 2} entities)`);
+
+    const pct = (id) => `${Math.round(getNum(id) * 100)}%`;
+    setVal("gen_rate_dob_year_only_val", pct("gen_rate_dob_year_only"));
+    setVal("gen_rate_dob_year_month_val", pct("gen_rate_dob_year_month"));
+    setVal("gen_rate_dob_shift_val", pct("gen_rate_dob_shift"));
+    setVal("gen_drop_dob_rate_val", pct("gen_drop_dob_rate"));
+
+    setVal("gen_rate_first_noise_val", pct("gen_rate_first_noise"));
+    setVal("gen_rate_last_noise_val", pct("gen_rate_last_noise"));
+    setVal("gen_drop_address_rate_val", pct("gen_drop_address_rate"));
+    setVal("gen_drop_phone_rate_val", pct("gen_drop_phone_rate"));
+    setVal("gen_drop_email_rate_val", pct("gen_drop_email_rate"));
+
+    setVal("gen_token_rate_val", pct("gen_token_rate"));
+    setVal("gen_employer_rate_val", pct("gen_employer_rate"));
+  }
+
+  function applyGeneratorPreset(presetKey) {
+    const p = GENERATOR_PRESETS[presetKey];
+    if (!p) return;
+
+    for (const [key, val] of Object.entries(p)) {
+      const el = $(`#gen_${key}`);
+      if (!el) continue;
+      if (el.type === "checkbox") {
+        el.checked = Boolean(val);
+      } else {
+        el.value = val;
+      }
+    }
+
+    document.querySelectorAll(".gen-preset-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.preset === presetKey);
+    });
+
+    updateGeneratorLabels();
+  }
+
+  function bindGeneratorControls() {
+    const genPanel = $("#tab-generator");
+    if (!genPanel) return;
+
+    // Attach input listeners for real-time label updates
+    genPanel.querySelectorAll("input[type=range], input[type=number]").forEach((input) => {
+      input.addEventListener("input", updateGeneratorLabels);
+    });
+
+    // Preset buttons
+    genPanel.querySelectorAll(".gen-preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        applyGeneratorPreset(btn.dataset.preset);
+      });
+    });
+
+    // Randomize seed button
+    const randSeedBtn = $("#genRandomSeedBtn");
+    if (randSeedBtn) {
+      randSeedBtn.addEventListener("click", () => {
+        const seedInput = $("#gen_seed");
+        if (seedInput) {
+          seedInput.value = Math.floor(Math.random() * 90000) + 10000;
+        }
+      });
+    }
+
+    // Reset button
+    const resetBtn = $("#genResetBtn");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        applyGeneratorPreset("benchmark");
+      });
+    }
+
+    // Quick navigation buttons from summary
+    const goEntities = $("#genGoEntitiesBtn");
+    if (goEntities) {
+      goEntities.addEventListener("click", () => {
+        const tab = document.querySelector('.tab[data-tab="entities"]');
+        if (tab) tab.click();
+      });
+    }
+    const goMap = $("#genGoMapBtn");
+    if (goMap) {
+      goMap.addEventListener("click", () => {
+        const tab = document.querySelector('.tab[data-tab="map"]');
+        if (tab) tab.click();
+      });
+    }
+
+    // Primary generate button
+    const genBtn = $("#genGenerateBtn");
+    const statusBadge = $("#genStatusBadge");
+
+    if (genBtn) {
+      genBtn.addEventListener("click", async () => {
+        const payload = {
+          seed: parseInt($("#gen_seed")?.value || 42, 10),
+          n_neighborhood: parseInt($("#gen_n_neighborhood")?.value || 6, 10),
+          n_intrastate: parseInt($("#gen_n_intrastate")?.value || 6, 10),
+          n_interstate: parseInt($("#gen_n_interstate")?.value || 6, 10),
+          n_household_pairs: parseInt($("#gen_n_household_pairs")?.value || 3, 10),
+          n_name_collision_pairs: parseInt($("#gen_n_name_collision_pairs")?.value || 2, 10),
+          include_phone_reallocation: $("#gen_include_phone_reallocation")?.checked ?? true,
+          enable_dob_noise: $("#gen_enable_dob_noise")?.checked ?? true,
+          rate_dob_year_only: parseFloat($("#gen_rate_dob_year_only")?.value || 0.10),
+          rate_dob_year_month: parseFloat($("#gen_rate_dob_year_month")?.value || 0.10),
+          rate_dob_shift: parseFloat($("#gen_rate_dob_shift")?.value || 0.12),
+          drop_dob_rate: parseFloat($("#gen_drop_dob_rate")?.value || 0.12),
+          enable_name_noise: $("#gen_enable_name_noise")?.checked ?? true,
+          rate_first_noise: parseFloat($("#gen_rate_first_noise")?.value || 0.35),
+          rate_last_noise: parseFloat($("#gen_rate_last_noise")?.value || 0.15),
+          drop_address_rate: parseFloat($("#gen_drop_address_rate")?.value || 0.10),
+          drop_phone_rate: parseFloat($("#gen_drop_phone_rate")?.value || 0.08),
+          drop_email_rate: parseFloat($("#gen_drop_email_rate")?.value || 0.08),
+          token_rate: parseFloat($("#gen_token_rate")?.value || 0.60),
+          employer_rate: parseFloat($("#gen_employer_rate")?.value || 0.70),
+          save_to_disk: $("#gen_save_to_disk")?.checked ?? true,
+          threshold: state.threshold,
+          weights: state.weights,
+          use_persistent_tokens: state.usePersistentTokens,
+        };
+
+        genBtn.disabled = true;
+        genBtn.textContent = "Generating dataset…";
+        if (statusBadge) {
+          statusBadge.className = "gen-status-badge loading";
+          statusBadge.innerHTML = '<span class="pulse-indicator"></span> Generating dataset…';
+        }
+
+        try {
+          const res = await fetchJSON("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (res.error) throw new Error(res.error);
+
+          // Update application state
+          state.observations = res.observations;
+          state.obsById.clear();
+          state.observations.forEach((o) => state.obsById.set(o.observation_id, o));
+          state.result = res.result;
+
+          buildPairMap();
+          $("#statusBadge").textContent = `${state.observations.length} observations · ` +
+            `${res.result.entities.length} resolved entities`;
+          renderMetrics();
+          renderEntities();
+          renderPairs();
+          populateMapSelect();
+          renderMap();
+          renderObservationsTable();
+          renderMapObservationsTable();
+
+          if (statusBadge) {
+            statusBadge.className = "gen-status-badge success";
+            statusBadge.textContent = `✓ Generated ${res.observations.length} observations (${res.summary.total_entities} entities)`;
+          }
+
+          renderGenSummary(res.summary, payload);
+        } catch (err) {
+          if (statusBadge) {
+            statusBadge.className = "gen-status-badge error";
+            statusBadge.textContent = `Error: ${err.message}`;
+          }
+        } finally {
+          genBtn.disabled = false;
+          genBtn.textContent = "⚡ Generate & Reload Dataset";
+        }
+      });
+    }
+
+    updateGeneratorLabels();
+  }
+
+  function renderGenSummary(summary, payload) {
+    const section = $("#genSummarySection");
+    const container = $("#genSummaryContent");
+    if (!section || !container || !summary) return;
+
+    const totalObs = summary.total_observations;
+    const totalEnt = summary.total_entities;
+    const dob = summary.dob_stats || {};
+    const cov = summary.coverage || {};
+
+    const pct = (cnt) => totalObs > 0 ? `${Math.round((cnt / totalObs) * 100)}%` : "0%";
+
+    container.innerHTML = `
+      <div class="gen-summary-grid">
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">Total Observations</span>
+          <span class="gen-stat-value">${totalObs}</span>
+          <span class="gen-stat-sub">Across ${totalEnt} latent individuals</span>
+        </div>
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">Mobility Archetypes</span>
+          <span class="gen-stat-value">${payload ? payload.n_neighborhood + payload.n_intrastate + payload.n_interstate : "-"} Primary</span>
+          <span class="gen-stat-sub">Cat 1: ${payload?.n_neighborhood || 0} · Cat 2: ${payload?.n_intrastate || 0} · Cat 3: ${payload?.n_interstate || 0}</span>
+        </div>
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">Confounder Population</span>
+          <span class="gen-stat-value">${payload ? (payload.n_household_pairs * 2) + (payload.n_name_collision_pairs * 2) + (payload.include_phone_reallocation ? 2 : 0) : "-"} Entities</span>
+          <span class="gen-stat-sub">HH: ${payload?.n_household_pairs || 0}p · Name: ${payload?.n_name_collision_pairs || 0}p · Phone: ${payload?.include_phone_reallocation ? "Yes" : "No"}</span>
+        </div>
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">DOB Quality Mix</span>
+          <span class="gen-stat-value">${pct(dob.full)} Full Dates</span>
+          <span class="gen-stat-sub">${pct(dob.year_only)} Y · ${pct(dob.year_month)} YM · ${pct(dob.missing)} None</span>
+        </div>
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">Token Footprints</span>
+          <span class="gen-stat-value">${pct(cov.persistent_token_obs)}</span>
+          <span class="gen-stat-sub">${cov.persistent_token_obs || 0} sightings with token</span>
+        </div>
+        <div class="gen-stat-card">
+          <span class="gen-stat-label">Employer Anchors</span>
+          <span class="gen-stat-value">${pct(cov.employer_obs)}</span>
+          <span class="gen-stat-sub">${cov.employer_obs || 0} sightings with employer ID</span>
+        </div>
+      </div>
+    `;
+    section.hidden = false;
   }
 
   document.addEventListener("DOMContentLoaded", init);

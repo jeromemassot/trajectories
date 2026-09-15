@@ -40,8 +40,8 @@
       dataset &mdash; it is the same scoring function described in the write-up.</p>
 
     <label class="slider-row">
-      <span>Match threshold <b id="thresholdVal">0.65</b></span>
-      <input type="range" id="threshold" min="0.05" max="0.95" step="0.01" value="0.65" />
+      <span>Match threshold <b id="thresholdVal">0.650</b></span>
+      <input type="range" id="threshold" min="0.05" max="0.999" step="0.005" value="0.65" />
     </label>
 
     <div class="weight-grid">
@@ -53,18 +53,20 @@
         <input type="range" class="weight" data-key="email" min="0" max="6" step="0.1" value="2.0" /></label>
       <label class="slider-row"><span>Phone match (temporal decay) <b id="w_phone_val"></b></span>
         <input type="range" class="weight" data-key="phone" min="0" max="6" step="0.1" value="1.8" /></label>
-      <label class="slider-row"><span>Spatio-temporal kernel <b id="w_spatiotemporal_val"></b></span>
-        <input type="range" class="weight" data-key="spatiotemporal" min="0" max="6" step="0.1" value="1.2" /></label>
+      <label class="slider-row"><span>Spatial locality affinity <b id="w_spatial_locality_val"></b></span>
+        <input type="range" class="weight" data-key="spatial_locality" min="0" max="6" step="0.1" value="1.2" /></label>
+      <label class="slider-row"><span>Relocation plausibility <b id="w_relocation_plausibility_val"></b></span>
+        <input type="range" class="weight" data-key="relocation_plausibility" min="0" max="6" step="0.1" value="1.5" /></label>
       <label class="slider-row"><span>Co-occurrence (household/employer/token) <b id="w_cooccurrence_val"></b></span>
         <input type="range" class="weight" data-key="cooccurrence" min="0" max="6" step="0.1" value="2.2" /></label>
-      <label class="slider-row"><span>Kinematic-violation penalty <b id="w_kinematic_penalty_val"></b></span>
-        <input type="range" class="weight" data-key="kinematic_penalty" min="0" max="10" step="0.2" value="4.0" /></label>
       <label class="slider-row"><span>DOB-conflict penalty <b id="w_dob_conflict_penalty_val"></b></span>
         <input type="range" class="weight" data-key="dob_conflict_penalty" min="0" max="10" step="0.2" value="5.0" /></label>
     </div>
 
     <div class="controls-actions">
       <button id="resetBtn">Reset to defaults</button>
+      <label class="checkbox-row"><input type="checkbox" id="tokenToggle" checked />
+        Use persistent hardware / ad tokens (digital fingerprint) <b id="tokenCountBadge"></b></label>
       <label class="checkbox-row"><input type="checkbox" id="truthToggle" checked />
         Show hidden ground truth (demo/evaluation only &mdash; a real system would not have this)</label>
     </div>
@@ -84,6 +86,7 @@
     <button class="tab" data-tab="map">Trajectory map</button>
     <button class="tab" data-tab="pairs">Candidate pairs</button>
     <button class="tab" data-tab="observations">Raw observations</button>
+    <button class="tab" data-tab="generator">Data Generator</button>
   </nav>
 
   <section class="panel tab-panel" id="tab-entities">
@@ -201,6 +204,7 @@
       <label>Min score <input type="number" id="pairMinScore" min="0" max="1" step="0.05" value="0" /></label>
       <label><input type="checkbox" id="pairOnlyLinked" /> Linked only</label>
       <label><input type="checkbox" id="pairOnlyBlocked" /> Hard-blocked only</label>
+      <label><input type="checkbox" id="pairOnlyToken" /> Token-anchored only</label>
       <span id="pairCount" class="pair-count"></span>
     </div>
     <div class="table-wrap">
@@ -226,6 +230,188 @@
         </thead>
         <tbody id="obsBody"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="panel tab-panel" id="tab-generator" hidden>
+    <div class="panel-header-row">
+      <div>
+        <h2>Synthetic Data Generator &amp; Population Controls</h2>
+        <p class="hint">Configure population archetypes, date-of-birth noise, name typos, attribute drop rates, and digital anchors. Generate a fresh synthetic dataset on demand to test the pipeline live.</p>
+      </div>
+    </div>
+
+    <!-- Generator Presets -->
+    <div class="gen-presets-bar">
+      <span class="gen-presets-label">Quick presets:</span>
+      <button type="button" class="gen-preset-btn active" data-preset="benchmark">🎯 Standard Benchmark (30 entities, Seed 42)</button>
+      <button type="button" class="gen-preset-btn" data-preset="clean">✨ Clean / Zero Noise</button>
+      <button type="button" class="gen-preset-btn" data-preset="challenging">⚡ Challenging Noise</button>
+      <button type="button" class="gen-preset-btn" data-preset="high_mobility">🚀 High Mobility</button>
+      <button type="button" class="gen-preset-btn" data-preset="small">🔬 Small Test Set (15 entities)</button>
+    </div>
+
+    <!-- Generator Grid -->
+    <div class="gen-grid">
+      <!-- Card 1: Archetypes & Population -->
+      <div class="gen-card">
+        <h3>1. Population &amp; Mobility Archetypes</h3>
+        <p class="hint">Adjust the distribution of mobility behaviors and confounder entities.</p>
+
+        <div class="gen-input-row">
+          <label for="gen_seed">Random Seed</label>
+          <div class="gen-seed-group">
+            <input type="number" id="gen_seed" value="42" style="width: 100px;" />
+            <button type="button" id="genRandomSeedBtn" class="gen-btn-sm" title="Pick random seed">🎲 Randomize</button>
+          </div>
+        </div>
+
+        <label class="slider-row">
+          <span>Cat 1: Neighborhood Stayers (&lt;5 km radius) <b id="gen_n_neighborhood_val">6</b></span>
+          <input type="range" id="gen_n_neighborhood" min="1" max="20" step="1" value="6" />
+        </label>
+
+        <label class="slider-row">
+          <span>Cat 2: Intra-State Movers (2–3 cities in state) <b id="gen_n_intrastate_val">6</b></span>
+          <input type="range" id="gen_n_intrastate" min="1" max="20" step="1" value="6" />
+        </label>
+
+        <label class="slider-row">
+          <span>Cat 3: Inter-State Migrators (2–4 states) <b id="gen_n_interstate_val">6</b></span>
+          <input type="range" id="gen_n_interstate" min="1" max="20" step="1" value="6" />
+        </label>
+
+        <label class="slider-row">
+          <span>Household Confounder Pairs (Shared phone/addr) <b id="gen_n_household_pairs_val">3 pairs (6 entities)</b></span>
+          <input type="range" id="gen_n_household_pairs" min="0" max="10" step="1" value="3" />
+        </label>
+
+        <label class="slider-row">
+          <span>Name-Collision Pairs (Same name in diff states) <b id="gen_n_name_collision_pairs_val">2 pairs (4 entities)</b></span>
+          <input type="range" id="gen_n_name_collision_pairs" min="0" max="10" step="1" value="2" />
+        </label>
+
+        <label class="checkbox-row" style="margin-top: 10px;">
+          <input type="checkbox" id="gen_include_phone_reallocation" checked />
+          <span>Include recycled phone number confounders (Marcus Vance &amp; Clara Oswald)</span>
+        </label>
+      </div>
+
+      <!-- Card 2: Date of Birth Noise -->
+      <div class="gen-card">
+        <h3>2. Date of Birth Realism Noise</h3>
+        <p class="hint">Inject partial formats and off-by-one shifts to simulate real record collection.</p>
+
+        <label class="checkbox-row" style="margin-bottom: 12px;">
+          <input type="checkbox" id="gen_enable_dob_noise" checked />
+          <span><b>Enable Date of Birth Noise</b></span>
+        </label>
+
+        <label class="slider-row">
+          <span>Year-Only format ("YYYY") rate <b id="gen_rate_dob_year_only_val">10%</b></span>
+          <input type="range" id="gen_rate_dob_year_only" min="0" max="0.40" step="0.02" value="0.10" />
+        </label>
+
+        <label class="slider-row">
+          <span>Year-Month format ("YYYY-MM") rate <b id="gen_rate_dob_year_month_val">10%</b></span>
+          <input type="range" id="gen_rate_dob_year_month" min="0" max="0.40" step="0.02" value="0.10" />
+        </label>
+
+        <label class="slider-row">
+          <span>±1 Day Shift ("YYYY-MM-DD" ±1d) rate <b id="gen_rate_dob_shift_val">12%</b></span>
+          <input type="range" id="gen_rate_dob_shift" min="0" max="0.40" step="0.02" value="0.12" />
+        </label>
+
+        <label class="slider-row">
+          <span>Missing DOB (unrecorded) rate <b id="gen_drop_dob_rate_val">12%</b></span>
+          <input type="range" id="gen_drop_dob_rate" min="0" max="0.40" step="0.02" value="0.12" />
+        </label>
+      </div>
+
+      <!-- Card 3: Name & Field Missingness -->
+      <div class="gen-card">
+        <h3>3. Name Typos &amp; Field Missingness</h3>
+        <p class="hint">Simulate real-world data collection imperfections and omitted fields.</p>
+
+        <label class="checkbox-row" style="margin-bottom: 12px;">
+          <input type="checkbox" id="gen_enable_name_noise" checked />
+          <span><b>Enable Name Corruption</b></span>
+        </label>
+
+        <label class="slider-row">
+          <span>First name corruption (nicknames / typos) <b id="gen_rate_first_noise_val">35%</b></span>
+          <input type="range" id="gen_rate_first_noise" min="0" max="0.70" step="0.05" value="0.35" />
+        </label>
+
+        <label class="slider-row">
+          <span>Last name typo rate <b id="gen_rate_last_noise_val">15%</b></span>
+          <input type="range" id="gen_rate_last_noise" min="0" max="0.50" step="0.05" value="0.15" />
+        </label>
+
+        <label class="slider-row">
+          <span>Missing address &amp; GPS coordinates rate <b id="gen_drop_address_rate_val">10%</b></span>
+          <input type="range" id="gen_drop_address_rate" min="0" max="0.50" step="0.02" value="0.10" />
+        </label>
+
+        <label class="slider-row">
+          <span>Missing phone number rate <b id="gen_drop_phone_rate_val">8%</b></span>
+          <input type="range" id="gen_drop_phone_rate" min="0" max="0.50" step="0.02" value="0.08" />
+        </label>
+
+        <label class="slider-row">
+          <span>Missing email address rate <b id="gen_drop_email_rate_val">8%</b></span>
+          <input type="range" id="gen_drop_email_rate" min="0" max="0.50" step="0.02" value="0.08" />
+        </label>
+      </div>
+
+      <!-- Card 4: Digital Footprints & Storage -->
+      <div class="gen-card">
+        <h3>4. Digital Identity &amp; Persistence</h3>
+        <p class="hint">Configure hardware/ad token adoption, employer anchors, and file saving.</p>
+
+        <label class="slider-row">
+          <span>Persistent hardware / ad token rate <b id="gen_token_rate_val">60%</b></span>
+          <input type="range" id="gen_token_rate" min="0" max="1.0" step="0.05" value="0.60" />
+        </label>
+
+        <label class="slider-row">
+          <span>Employer ID &amp; work email assignment <b id="gen_employer_rate_val">70%</b></span>
+          <input type="range" id="gen_employer_rate" min="0" max="1.0" step="0.05" value="0.70" />
+        </label>
+
+        <div style="margin-top: 24px; padding-top: 14px; border-top: 1px dashed var(--border);">
+          <label class="checkbox-row">
+            <input type="checkbox" id="gen_save_to_disk" checked />
+            <span>Save generated observations to disk (<code>mock_observations.json</code>)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generator Actions -->
+    <div class="gen-actions-bar">
+      <div class="gen-actions-left">
+        <button type="button" id="genGenerateBtn" class="gen-btn-primary">⚡ Generate &amp; Reload Dataset</button>
+        <button type="button" id="genResetBtn" class="gen-btn-secondary">↺ Reset Generator Defaults</button>
+      </div>
+      <div class="gen-actions-right">
+        <span id="genStatusBadge" class="gen-status-badge">Ready</span>
+      </div>
+    </div>
+
+    <!-- Dynamic Summary Card (populated after generation) -->
+    <div id="genSummarySection" class="gen-summary-section" hidden>
+      <div class="gen-summary-header">
+        <div class="gen-summary-title">
+          <span class="pulse-indicator"></span>
+          <span>Dataset Generation Summary</span>
+        </div>
+        <div class="gen-summary-actions">
+          <button type="button" class="gen-link-btn" id="genGoEntitiesBtn">View Resolved Clusters →</button>
+          <button type="button" class="gen-link-btn" id="genGoMapBtn">View Trajectory Map →</button>
+        </div>
+      </div>
+      <div class="gen-summary-content" id="genSummaryContent"></div>
     </div>
   </section>
 </main>
