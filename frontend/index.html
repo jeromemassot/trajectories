@@ -306,7 +306,7 @@
       <!-- Card 1: Observation Distribution -->
       <div class="gen-card">
         <h3>1. Observation Distribution per Individual</h3>
-        <p class="hint">Statistical distribution governing the count of sightings $K_i \sim \mathcal{D}$ for each person.</p>
+        <p class="hint">Statistical distribution governing the count of sightings <i>K<sub>i</sub> &sim; &Dscr;</i> for each individual.</p>
 
         <label class="select-row" style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px;">
           <span style="font-size: 0.8rem; font-weight: 600; color: var(--muted);">Statistical Distribution Model:</span>
@@ -330,14 +330,26 @@
         </label>
 
         <div class="gen-two-col-row">
-          <label class="slider-row-compact">
-            <span>Min Obs (k<sub>min</sub>): <b id="gen_min_obs_val">2</b></span>
-            <input type="number" id="gen_min_obs" min="1" max="20" step="1" value="2" style="width: 65px;" />
+          <label class="slider-row-compact" for="gen_min_obs">
+            <span>Min Obs (<i>k</i><sub>min</sub>):</span>
+            <input type="number" id="gen_min_obs" min="1" max="20" step="1" value="2" style="width: 65px;" title="Minimum observations per individual" />
           </label>
-          <label class="slider-row-compact">
-            <span>Max Obs (k<sub>max</sub>): <b id="gen_max_obs_val">80</b></span>
-            <input type="number" id="gen_max_obs" min="5" max="200" step="1" value="80" style="width: 65px;" />
+          <label class="slider-row-compact" for="gen_max_obs">
+            <span>Max Obs (<i>k</i><sub>max</sub>):</span>
+            <input type="number" id="gen_max_obs" min="5" max="200" step="1" value="80" style="width: 65px;" title="Maximum observations per individual" />
           </label>
+        </div>
+
+        <!-- Real-time Distribution Previewer -->
+        <div class="dist-viewer-wrap">
+          <div class="dist-viewer-header">
+            <span class="dist-viewer-title">Distribution Shape <i>P(K = k)</i></span>
+            <span class="dist-viewer-stats" id="distViewerStats">Mode: 10 · 95% CI: [4, 17]</span>
+          </div>
+          <div class="dist-svg-box">
+            <svg id="distViewerSvg" viewBox="0 0 340 140" preserveAspectRatio="none" role="img" aria-label="Observation Distribution Density"></svg>
+            <div id="distViewerTooltip" class="dist-tooltip" hidden></div>
+          </div>
         </div>
       </div>
 

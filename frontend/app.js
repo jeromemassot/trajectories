@@ -1489,6 +1489,241 @@
     updateGeneratorLabels();
   }
 
+  function logGamma(z) {
+    if (z <= 0) return 0;
+    const c = [
+      57.1562356658629235,
+      -59.5979603554754912,
+      14.1360979747417471,
+      -0.491913816097620199,
+      0.339946499848118887e-4,
+      0.465236289270485756e-4,
+      -0.983744753048795646e-4,
+      0.158088703224378388e-3,
+      -0.210264441724104883e-3,
+      0.217439618115212643e-3,
+      -0.164318106536763890e-3,
+      0.844182239838527433e-4,
+      -0.261908384015814087e-4,
+      0.368991826595316234e-5,
+    ];
+    let y = z;
+    let x = 0.99999999999999709182;
+    for (let i = 0; i < c.length; i++) {
+      x += c[i] / (z + i + 1);
+    }
+    const t = z + c.length - 0.5;
+    return 0.91893853320467274178 + (z + 0.5) * Math.log(t) - t + Math.log(x) - Math.log(z);
+  }
+
+  function computeDistributionPMF(distType, mean, std, kMin, kMax) {
+    let maxK = Math.max(25, Math.ceil(mean + 3.2 * Math.max(1, std)));
+    if (kMax < 150) {
+      maxK = Math.max(maxK, Math.min(100, kMax + 2));
+    }
+    maxK = Math.min(120, Math.max(maxK, kMin + 15));
+
+    const pmf = [];
+    let sum = 0;
+
+    for (let k = 0; k <= maxK; k++) {
+      let p = 0;
+      if (k >= kMin && k <= kMax) {
+        if (distType === "gaussian") {
+          const s = Math.max(0.1, std);
+          const z = (k - mean) / s;
+          p = Math.exp(-0.5 * z * z);
+        } else if (distType === "negbinom") {
+          const variance = Math.max(mean * 1.05, std * std);
+          const p_succ = mean / variance;
+          const r = (mean * mean) / (variance - mean);
+          p = Math.exp(logGamma(k + r) - logGamma(k + 1) - logGamma(r) + r * Math.log(p_succ) + k * Math.log(1 - p_succ));
+        } else if (distType === "lognormal") {
+          if (k > 0) {
+            const v = std * std;
+            const m = Math.max(0.1, mean);
+            const sigmaL = Math.sqrt(Math.log(1 + v / (m * m)));
+            const muL = Math.log(m) - 0.5 * sigmaL * sigmaL;
+            const z = (Math.log(k) - muL) / sigmaL;
+            p = (1 / (k * sigmaL)) * Math.exp(-0.5 * z * z);
+          }
+        } else if (distType === "uniform") {
+          p = 1.0;
+        } else if (distType === "fixed") {
+          p = (k === Math.round(mean)) ? 1.0 : 0.0;
+        }
+      }
+      if (isNaN(p) || !isFinite(p) || p < 0) p = 0;
+      pmf.push({ k, p });
+      sum += p;
+    }
+
+    if (sum > 0) {
+      for (const d of pmf) d.p /= sum;
+    }
+
+    return { pmf, maxK };
+  }
+
+  function renderDistributionViewer() {
+    const svg = $("#distViewerSvg");
+    if (!svg) return;
+
+    const distType = $("#gen_obs_dist")?.value || "gaussian";
+    const mean = parseFloat($("#gen_mean_obs")?.value || 10.2);
+    const std = parseFloat($("#gen_std_obs")?.value || 3.5);
+    const kMin = parseInt($("#gen_min_obs")?.value || 2, 10);
+    const kMax = parseInt($("#gen_max_obs")?.value || 80, 10);
+
+    const { pmf, maxK } = computeDistributionPMF(distType, mean, std, kMin, kMax);
+
+    // Compute stats: Mode, 95% interval
+    let modeK = kMin;
+    let maxP = 0;
+    pmf.forEach((d) => {
+      if (d.p > maxP) {
+        maxP = d.p;
+        modeK = d.k;
+      }
+    });
+
+    let cum = 0;
+    let ciLow = kMin;
+    let ciHigh = maxK;
+    let foundLow = false;
+    for (const d of pmf) {
+      cum += d.p;
+      if (!foundLow && cum >= 0.025) {
+        ciLow = d.k;
+        foundLow = true;
+      }
+      if (cum >= 0.975) {
+        ciHigh = d.k;
+        break;
+      }
+    }
+
+    const statsEl = $("#distViewerStats");
+    if (statsEl) {
+      if (distType === "fixed") {
+        statsEl.textContent = `Fixed: k = ${Math.round(mean)} obs`;
+      } else if (distType === "uniform") {
+        statsEl.textContent = `Uniform: [${kMin}, ${kMax}] · E[K] = ${mean.toFixed(1)}`;
+      } else {
+        statsEl.textContent = `Mode: ${modeK} · 95% CI: [${ciLow}, ${ciHigh}]`;
+      }
+    }
+
+    // Drawing coordinates
+    const vbW = 340;
+    const vbH = 140;
+    const padL = 28;
+    const padR = 14;
+    const padT = 20;
+    const padB = 22;
+    const plotW = vbW - padL - padR;
+    const plotH = vbH - padT - padB;
+
+    const yMax = Math.max(0.05, maxP * 1.25);
+    const xCoord = (k) => padL + (k / maxK) * plotW;
+    const yCoord = (p) => padT + plotH - (Math.min(yMax, p) / yMax) * plotH;
+
+    // Build SVG Path
+    let areaPath = `M ${xCoord(0)} ${padT + plotH}`;
+    let strokePath = `M ${xCoord(0)} ${yCoord(pmf[0].p)}`;
+    for (let i = 0; i < pmf.length; i++) {
+      const x = xCoord(pmf[i].k);
+      const y = yCoord(pmf[i].p);
+      areaPath += ` L ${x} ${y}`;
+      if (i > 0) strokePath += ` L ${x} ${y}`;
+    }
+    areaPath += ` L ${xCoord(pmf[pmf.length - 1].k)} ${padT + plotH} Z`;
+
+    // Discrete bars
+    const barW = Math.max(2, Math.min(8, (plotW / (maxK + 1)) * 0.75));
+    let barsHtml = "";
+    pmf.forEach((d) => {
+      if (d.p > 0.002) {
+        const x = xCoord(d.k) - barW / 2;
+        const y = yCoord(d.p);
+        const h = padT + plotH - y;
+        barsHtml += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--accent)" opacity="0.32" />`;
+      }
+    });
+
+    // Mean indicator
+    const meanX = xCoord(Math.min(maxK, Math.max(0, mean)));
+    const meanMarkerHtml = `
+      <line x1="${meanX.toFixed(1)}" y1="${padT}" x2="${meanX.toFixed(1)}" y2="${padT + plotH}" stroke="var(--warn)" stroke-width="1.6" stroke-dasharray="3,3" />
+      <text x="${meanX.toFixed(1)}" y="${padT - 5}" fill="var(--warn)" font-size="9" font-weight="700" text-anchor="middle">&mu;=${mean.toFixed(1)}</text>
+    `;
+
+    // Truncation markers
+    let truncHtml = "";
+    if (kMin > 0) {
+      const minX = xCoord(kMin);
+      truncHtml += `<line x1="${minX.toFixed(1)}" y1="${padT + 8}" x2="${minX.toFixed(1)}" y2="${padT + plotH}" stroke="var(--bad)" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.85" />
+      <text x="${minX.toFixed(1)}" y="${padT + 6}" fill="var(--bad)" font-size="8" font-weight="600" text-anchor="middle">k_min</text>`;
+    }
+    if (kMax < maxK) {
+      const maxX = xCoord(kMax);
+      truncHtml += `<line x1="${maxX.toFixed(1)}" y1="${padT + 8}" x2="${maxX.toFixed(1)}" y2="${padT + plotH}" stroke="var(--bad)" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.85" />
+      <text x="${maxX.toFixed(1)}" y="${padT + 6}" fill="var(--bad)" font-size="8" font-weight="600" text-anchor="middle">k_max</text>`;
+    }
+
+    // Grid & Axis Ticks
+    const tickStep = maxK <= 30 ? 5 : maxK <= 60 ? 10 : 20;
+    let ticksHtml = "";
+    for (let k = 0; k <= maxK; k += tickStep) {
+      const x = xCoord(k);
+      ticksHtml += `
+        <line x1="${x.toFixed(1)}" y1="${padT + plotH}" x2="${x.toFixed(1)}" y2="${padT + plotH + 4}" stroke="var(--border)" stroke-width="1" />
+        <text x="${x.toFixed(1)}" y="${padT + plotH + 14}" fill="var(--muted)" font-size="8" text-anchor="middle">${k}</text>
+      `;
+    }
+
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="distGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.4" />
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.03" />
+        </linearGradient>
+      </defs>
+      <!-- Baseline -->
+      <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1.2" />
+      <!-- Grid Ticks -->
+      ${ticksHtml}
+      <!-- Bars -->
+      ${barsHtml}
+      <!-- Filled Density Area -->
+      <path d="${areaPath}" fill="url(#distGrad)" />
+      <!-- Density Stroke -->
+      <path d="${strokePath}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <!-- Truncation lines -->
+      ${truncHtml}
+      <!-- Mean Line -->
+      ${meanMarkerHtml}
+    `;
+
+    // Interactive hover
+    svg.onmousemove = (e) => {
+      const rect = svg.getBoundingClientRect();
+      const relX = ((e.clientX - rect.left) / rect.width) * vbW;
+      const k = Math.round(((relX - padL) / plotW) * maxK);
+      const tt = $("#distViewerTooltip");
+      if (tt && k >= 0 && k < pmf.length) {
+        const item = pmf[k];
+        const pct = item ? (item.p * 100).toFixed(1) : "0.0";
+        tt.textContent = `k = ${k} obs: ${pct}%`;
+        tt.hidden = false;
+      }
+    };
+    svg.onmouseleave = () => {
+      const tt = $("#distViewerTooltip");
+      if (tt) tt.hidden = true;
+    };
+  }
+
   function updateGeneratorLabels() {
     const setVal = (id, val) => {
       const el = $(`#${id}`);
@@ -1507,8 +1742,6 @@
     const meanObs = getNum("gen_mean_obs");
     setVal("gen_mean_obs_val", meanObs.toFixed(1));
     setVal("gen_std_obs_val", getNum("gen_std_obs").toFixed(1));
-    setVal("gen_min_obs_val", getNum("gen_min_obs"));
-    setVal("gen_max_obs_val", getNum("gen_max_obs"));
 
     // Tiers
     const pNever = getNum("gen_pct_never");
@@ -1592,6 +1825,8 @@
     if (warnEl) {
       warnEl.hidden = (n <= 500 || generatorState.mode === "batch");
     }
+
+    renderDistributionViewer();
   }
 
   function switchGeneratorMode(mode) {
