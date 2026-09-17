@@ -635,6 +635,24 @@ def plan_observation_counts(
 def make_population(
     seed=42,
     target_obs=None,
+    n_individuals=None,
+    obs_distribution="gaussian",
+    mean_obs_per_person=10.0,
+    std_obs_per_person=3.5,
+    min_obs_per_person=2,
+    max_obs_per_person=80,
+    pct_never_moved=None,
+    pct_county_moved=None,
+    pct_state_moved=None,
+    pct_cross_us_moved=None,
+    mean_county_moves=1.8,
+    std_county_moves=0.8,
+    mean_state_moves=2.2,
+    std_state_moves=0.9,
+    mean_cross_moves=3.1,
+    std_cross_moves=1.2,
+    pct_household=5.0,
+    pct_collision=2.0,
     n_neighborhood=6,
     n_intrastate=6,
     n_interstate=6,
@@ -656,6 +674,101 @@ def make_population(
     employer_rate=0.70,
     return_summary=False,
 ):
+    # Check if statistical distribution / 4-tier relocation mode is requested
+    if n_individuals is not None or pct_never_moved is not None:
+        from massive_gen import generate_person_stream, AddressSynthesizer
+        random.seed(seed)
+        tot_entities = int(n_individuals if n_individuals is not None else 30)
+        p_never = float(pct_never_moved if pct_never_moved is not None else 0.40)
+        p_county = float(pct_county_moved if pct_county_moved is not None else 0.30)
+        p_state = float(pct_state_moved if pct_state_moved is not None else 0.20)
+        p_cross = float(pct_cross_us_moved if pct_cross_us_moved is not None else 0.10)
+
+        cfg = {
+            "obs_distribution": obs_distribution,
+            "mean_obs_per_person": mean_obs_per_person,
+            "std_obs_per_person": std_obs_per_person,
+            "min_obs_per_person": min_obs_per_person,
+            "max_obs_per_person": max_obs_per_person,
+            "pct_never_moved": p_never,
+            "pct_county_moved": p_county,
+            "pct_state_moved": p_state,
+            "pct_cross_us_moved": p_cross,
+            "mean_county_moves": mean_county_moves,
+            "std_county_moves": std_county_moves,
+            "mean_state_moves": mean_state_moves,
+            "std_state_moves": std_state_moves,
+            "mean_cross_moves": mean_cross_moves,
+            "std_cross_moves": std_cross_moves,
+            "enable_dob_noise": enable_dob_noise,
+            "rate_dob_year_only": rate_dob_year_only,
+            "rate_dob_year_month": rate_dob_year_month,
+            "rate_dob_shift": rate_dob_shift,
+            "drop_dob_rate": drop_dob_rate,
+            "enable_name_noise": enable_name_noise,
+            "rate_first_noise": rate_first_noise,
+            "rate_last_noise": rate_last_noise,
+            "drop_address_rate": drop_address_rate,
+            "drop_email_rate": drop_email_rate,
+            "drop_phone_rate": drop_phone_rate,
+            "token_rate": token_rate,
+            "employer_rate": employer_rate,
+        }
+
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        obs_rows = []
+        obs_counter = 1
+
+        n_hh_entities = int(round(tot_entities * (float(pct_household) / 100.0)))
+        if n_hh_entities % 2 != 0:
+            n_hh_entities += 1
+        n_coll_entities = int(round(tot_entities * (float(pct_collision) / 100.0)))
+        if n_coll_entities % 2 != 0:
+            n_coll_entities += 1
+
+        for e_idx in range(1, tot_entities + 1):
+            sub_seed = int(hashlib.md5(f"{seed}_{e_idx}".encode()).hexdigest()[:8], 16)
+            entity_id = f"E{e_idx:03d}"
+
+            hh_override = None
+            name_override = None
+            city_override = None
+
+            if e_idx <= n_hh_entities:
+                hh_group_id = (e_idx - 1) // 2
+                hh_override = f"HH-COHORT-{hh_group_id:04d}"
+            elif e_idx <= n_hh_entities + n_coll_entities:
+                coll_group_id = (e_idx - n_hh_entities - 1) // 2
+                name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
+                state_choices = ["New York, NY", "Los Angeles, CA", "Dallas, TX", "Chicago, IL", "Miami, FL"]
+                city_override = state_choices[(coll_group_id + (e_idx % 2)) % len(state_choices)]
+
+            p_obs, _, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=entity_id,
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                obs_counter_start=obs_counter,
+                sub_seed=sub_seed,
+                household_override=hh_override,
+                name_override=name_override,
+                city_override=city_override,
+            )
+            obs_counter += len(p_obs)
+            obs_rows.extend(p_obs)
+
+        # Shuffle observations and number them
+        random.shuffle(obs_rows)
+        for i, row in enumerate(obs_rows, start=1):
+            row["observation_id"] = f"O{i:04d}"
+
+        if return_summary:
+            return obs_rows, summarize_dataset(obs_rows)
+        return obs_rows
+
+    # Legacy / Benchmark Population Generation
     random.seed(seed)
     Person._next_id = 1
     HOUSEHOLD_RESIDENCES.clear()

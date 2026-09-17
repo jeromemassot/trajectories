@@ -234,33 +234,55 @@
   </section>
 
   <section class="panel tab-panel" id="tab-generator" hidden>
-    <div class="panel-header-row">
+    <div class="panel-header-row gen-header-row">
       <div>
         <h2>Synthetic Data Generator &amp; Population Controls</h2>
-        <p class="hint">Configure population archetypes, date-of-birth noise, name typos, attribute drop rates, and digital anchors. Generate a fresh synthetic dataset on demand to test the pipeline live.</p>
+        <p class="hint">Configure population scale, observation distributions, 4-tier relocation dynamics, noise, and confounders. Generate datasets live for interactive resolution or stream massive millions directly to disk.</p>
+      </div>
+      <div class="gen-mode-toggle-wrap">
+        <span class="gen-mode-label">Mode:</span>
+        <div class="gen-mode-switch" role="group" aria-label="Generator Mode">
+          <button type="button" class="gen-mode-btn active" id="genModeLiveBtn" data-mode="live">
+            <span>⚡ Live Interactive</span>
+            <small>≤ 1,000 Entities (In-Memory)</small>
+          </button>
+          <button type="button" class="gen-mode-btn" id="genModeBatchBtn" data-mode="batch">
+            <span>💾 Massive Batch Export</span>
+            <small>Up to 100M+ Rows (Direct Disk Stream)</small>
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- Generator Presets (Single Line) -->
     <div class="gen-presets-bar">
       <span class="gen-presets-label">Quick presets:</span>
-      <button type="button" class="gen-preset-btn active" data-preset="benchmark" title="Standard Benchmark (30 entities, 306 obs, Seed 42)">🎯 Standard Benchmark</button>
+      <button type="button" class="gen-preset-btn active" data-preset="benchmark" title="Standard Benchmark (30 entities, ~306 obs, Seed 42)">🎯 Standard Benchmark</button>
       <button type="button" class="gen-preset-btn" data-preset="clean" title="Clean / Zero Noise (100% full dates, 0% typos)">✨ Clean / Zero Noise</button>
       <button type="button" class="gen-preset-btn" data-preset="challenging" title="Challenging Noise (High typos & shifted dates)">⚡ Challenging Noise</button>
-      <button type="button" class="gen-preset-btn" data-preset="high_mobility" title="High Mobility (Enriched intra & inter-state movers)">🚀 High Mobility</button>
-      <button type="button" class="gen-preset-btn" data-preset="small" title="Small Test Set (15 entities, 150 obs)">🔬 Small Test Set</button>
+      <button type="button" class="gen-preset-btn" data-preset="high_mobility" title="High Mobility (Enriched intra & cross-US migrators)">🚀 High Mobility</button>
+      <button type="button" class="gen-preset-btn" data-preset="massive_100k" title="Massive 100k Benchmark (100,000 entities, ~1M obs)">🏭 Massive 100k Entities</button>
+      <button type="button" class="gen-preset-btn" data-preset="small" title="Small Test Set (15 entities, ~150 obs)">🔬 Small Test Set</button>
     </div>
 
-    <!-- Global Dataset Controls: Observations Count & Random Seed (Outside Card 1) -->
+    <!-- Global Dataset Controls: Population Scale, Seed & Real-time Estimator -->
     <div class="gen-global-bar">
       <div class="gen-global-item">
-        <label class="gen-global-label" for="gen_target_obs">
-          <span>Total Observations:</span>
-          <b id="gen_target_obs_val">306</b>
+        <label class="gen-global-label" for="gen_n_individuals">
+          <span>Target Population (Individuals <i>N</i>):</span>
+          <b id="gen_n_individuals_val">30</b>
         </label>
         <div class="gen-obs-input-wrap">
-          <input type="range" id="gen_target_obs" min="40" max="1000" step="10" value="306" />
-          <input type="number" id="gen_target_obs_num" min="20" max="3000" step="1" value="306" style="width: 80px;" title="Type exact number of observations" />
+          <input type="number" id="gen_n_individuals" min="1" max="100000000" step="1" value="30" style="width: 110px;" title="Total number of distinct latent individuals" />
+          <div class="gen-quick-scale-pills">
+            <button type="button" class="gen-pill-btn active" data-n="30">30</button>
+            <button type="button" class="gen-pill-btn" data-n="100">100</button>
+            <button type="button" class="gen-pill-btn" data-n="1000">1k</button>
+            <button type="button" class="gen-pill-btn" data-n="10000">10k</button>
+            <button type="button" class="gen-pill-btn" data-n="100000">100k</button>
+            <button type="button" class="gen-pill-btn" data-n="1000000">1M</button>
+            <button type="button" class="gen-pill-btn" data-n="10000000">10M</button>
+          </div>
         </div>
       </div>
 
@@ -271,41 +293,141 @@
           <button type="button" id="genRandomSeedBtn" class="gen-btn-sm" title="Pick random seed">🎲 Randomize</button>
         </div>
       </div>
+
+      <div class="gen-global-estimate-chip" id="genGlobalEstimateChip">
+        <span class="est-label">Expected Output:</span>
+        <span class="est-value" id="genEstObsCount">~306 obs</span>
+        <span class="est-size" id="genEstFileSize">· ~58 KB</span>
+      </div>
     </div>
 
     <!-- Generator Grid -->
     <div class="gen-grid">
-      <!-- Card 1: Archetypes & Population -->
+      <!-- Card 1: Observation Distribution -->
       <div class="gen-card">
-        <h3>1. Population &amp; Mobility Archetypes</h3>
-        <p class="hint">Adjust the distribution of mobility behaviors and confounder entities.</p>
+        <h3>1. Observation Distribution per Individual</h3>
+        <p class="hint">Statistical distribution governing the count of sightings $K_i \sim \mathcal{D}$ for each person.</p>
 
-        <label class="slider-row">
-          <span>Cat 1: Neighborhood Stayers (&lt;5 km radius) <b id="gen_n_neighborhood_val">6</b></span>
-          <input type="range" id="gen_n_neighborhood" min="1" max="20" step="1" value="6" />
+        <label class="select-row" style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--muted);">Statistical Distribution Model:</span>
+          <select id="gen_obs_dist" class="gen-select">
+            <option value="gaussian" selected>Truncated Gaussian (Default, symmetric spread)</option>
+            <option value="negbinom">Negative Binomial (Overdispersed, right-skewed)</option>
+            <option value="lognormal">Log-Normal (Heavy-tailed activity)</option>
+            <option value="uniform">Uniform Distribution</option>
+            <option value="fixed">Fixed Observation Count</option>
+          </select>
         </label>
 
         <label class="slider-row">
-          <span>Cat 2: Intra-State Movers (2–3 cities in state) <b id="gen_n_intrastate_val">6</b></span>
-          <input type="range" id="gen_n_intrastate" min="1" max="20" step="1" value="6" />
+          <span>Mean observations per individual (&mu;) <b id="gen_mean_obs_val">10.2</b></span>
+          <input type="range" id="gen_mean_obs" min="2" max="60" step="0.5" value="10.2" />
+        </label>
+
+        <label class="slider-row" id="gen_std_obs_wrap">
+          <span>Dispersion / Std Dev (&sigma;) <b id="gen_std_obs_val">3.5</b></span>
+          <input type="range" id="gen_std_obs" min="0.5" max="25" step="0.5" value="3.5" />
+        </label>
+
+        <div class="gen-two-col-row">
+          <label class="slider-row-compact">
+            <span>Min Obs (k<sub>min</sub>): <b id="gen_min_obs_val">2</b></span>
+            <input type="number" id="gen_min_obs" min="1" max="20" step="1" value="2" style="width: 65px;" />
+          </label>
+          <label class="slider-row-compact">
+            <span>Max Obs (k<sub>max</sub>): <b id="gen_max_obs_val">80</b></span>
+            <input type="number" id="gen_max_obs" min="5" max="200" step="1" value="80" style="width: 65px;" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Card 2: 4-Tier Relocation Dynamics -->
+      <div class="gen-card">
+        <div class="card-title-row">
+          <h3>2. Relocation Behavior (4 Tiers)</h3>
+          <button type="button" class="gen-text-btn" id="genResetRelocBtn" title="Reset to US Census Mobility baseline proportions">↺ US Census Baseline</button>
+        </div>
+        <p class="hint">Proportion of individuals across mobility archetypes (auto-balanced to 100%).</p>
+
+        <!-- Visual Stacked Bar -->
+        <div class="reloc-bar-container">
+          <div class="reloc-stacked-bar" id="relocStackedBar">
+            <div class="reloc-seg seg-never" id="relocBarNever" style="width: 50%;" title="Tier 0: Non-Movers (50%)">50%</div>
+            <div class="reloc-seg seg-county" id="relocBarCounty" style="width: 30%;" title="Tier 1: Intra-County (30%)">30%</div>
+            <div class="reloc-seg seg-state" id="relocBarState" style="width: 15%;" title="Tier 2: Intra-State (15%)">15%</div>
+            <div class="reloc-seg seg-cross" id="relocBarCross" style="width: 5%;" title="Tier 3: Cross-US (5%)">5%</div>
+          </div>
+          <div class="reloc-bar-legend">
+            <span class="legend-item"><i class="leg-color leg-never"></i> Non-Movers</span>
+            <span class="legend-item"><i class="leg-color leg-county"></i> Intra-County</span>
+            <span class="legend-item"><i class="leg-color leg-state"></i> Intra-State</span>
+            <span class="legend-item"><i class="leg-color leg-cross"></i> Cross-US</span>
+          </div>
+        </div>
+
+        <div class="tier-slider-block">
+          <label class="slider-row">
+            <span><i class="leg-color-inline leg-never"></i> Tier 0: Non-Movers / Stayers <b id="gen_pct_never_val">50%</b></span>
+            <input type="range" id="gen_pct_never" min="0" max="100" step="1" value="50" />
+          </label>
+        </div>
+
+        <div class="tier-slider-block">
+          <label class="slider-row">
+            <span><i class="leg-color-inline leg-county"></i> Tier 1: Intra-County Movers (&lt;30 km) <b id="gen_pct_county_val">30%</b></span>
+            <input type="range" id="gen_pct_county" min="0" max="100" step="1" value="30" />
+          </label>
+          <div class="tier-sub-params">
+            <span>Moves count: &mu;=</span>
+            <input type="number" id="gen_mean_county_moves" min="1" max="10" step="0.1" value="1.8" style="width: 55px;" />
+            <span>&plusmn; &sigma;=</span>
+            <input type="number" id="gen_std_county_moves" min="0.1" max="5" step="0.1" value="0.8" style="width: 55px;" />
+          </div>
+        </div>
+
+        <div class="tier-slider-block">
+          <label class="slider-row">
+            <span><i class="leg-color-inline leg-state"></i> Tier 2: Intra-State Movers (diff cities) <b id="gen_pct_state_val">15%</b></span>
+            <input type="range" id="gen_pct_state" min="0" max="100" step="1" value="15" />
+          </label>
+          <div class="tier-sub-params">
+            <span>Moves count: &mu;=</span>
+            <input type="number" id="gen_mean_state_moves" min="1" max="10" step="0.1" value="2.2" style="width: 55px;" />
+            <span>&plusmn; &sigma;=</span>
+            <input type="number" id="gen_std_state_moves" min="0.1" max="5" step="0.1" value="0.9" style="width: 55px;" />
+          </div>
+        </div>
+
+        <div class="tier-slider-block">
+          <label class="slider-row">
+            <span><i class="leg-color-inline leg-cross"></i> Tier 3: Cross-US Migrators (diff states) <b id="gen_pct_cross_us_val">5%</b></span>
+            <input type="range" id="gen_pct_cross_us" min="0" max="100" step="1" value="5" />
+          </label>
+          <div class="tier-sub-params">
+            <span>Moves count: &mu;=</span>
+            <input type="number" id="gen_mean_cross_moves" min="1" max="10" step="0.1" value="3.1" style="width: 55px;" />
+            <span>&plusmn; &sigma;=</span>
+            <input type="number" id="gen_std_cross_moves" min="0.1" max="5" step="0.1" value="1.2" style="width: 55px;" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Confounders & Adverse Stress Tests -->
+      <div class="gen-card">
+        <h3>3. Confounder Scaling &amp; Adversarial Tests</h3>
+        <p class="hint">Scale confounding pairs as user-configured percentages of the target population.</p>
+
+        <label class="slider-row">
+          <span>Household pairs (% sharing phone/addr) <b id="gen_pct_household_val">5.0% (~2 entities)</b></span>
+          <input type="range" id="gen_pct_household" min="0" max="25" step="0.5" value="5.0" />
         </label>
 
         <label class="slider-row">
-          <span>Cat 3: Inter-State Migrators (2–4 states) <b id="gen_n_interstate_val">6</b></span>
-          <input type="range" id="gen_n_interstate" min="1" max="20" step="1" value="6" />
+          <span>Name-collision pairs (% in diff states) <b id="gen_pct_collision_val">2.0% (~2 entities)</b></span>
+          <input type="range" id="gen_pct_collision" min="0" max="15" step="0.5" value="2.0" />
         </label>
 
-        <label class="slider-row">
-          <span>Household Confounder Pairs (Shared phone/addr) <b id="gen_n_household_pairs_val">3 pairs (6 entities)</b></span>
-          <input type="range" id="gen_n_household_pairs" min="0" max="10" step="1" value="3" />
-        </label>
-
-        <label class="slider-row">
-          <span>Name-Collision Pairs (Same name in diff states) <b id="gen_n_name_collision_pairs_val">2 pairs (4 entities)</b></span>
-          <input type="range" id="gen_n_name_collision_pairs" min="0" max="10" step="1" value="2" />
-        </label>
-
-        <div class="has-tooltip-wrapper" style="margin-top: 12px;">
+        <div class="has-tooltip-wrapper" style="margin-top: 14px;">
           <label class="checkbox-row" style="margin: 0;">
             <input type="checkbox" id="gen_include_phone_reallocation" checked />
             <span class="tooltip-trigger-label">
@@ -322,118 +444,197 @@
             <div class="tooltip-arrow"></div>
           </div>
         </div>
+
+        <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--muted); display: block; margin-bottom: 6px;">Digital Identity Footprints</span>
+          <label class="slider-row">
+            <span>Persistent hardware / ad token rate <b id="gen_token_rate_val">60%</b></span>
+            <input type="range" id="gen_token_rate" min="0" max="1.0" step="0.05" value="0.60" />
+          </label>
+          <label class="slider-row">
+            <span>Employer ID &amp; work email assignment <b id="gen_employer_rate_val">70%</b></span>
+            <input type="range" id="gen_employer_rate" min="0" max="1.0" step="0.05" value="0.70" />
+          </label>
+        </div>
       </div>
 
-      <!-- Card 2: Date of Birth Noise -->
+      <!-- Card 4: Date of Birth & Missingness Noise -->
       <div class="gen-card">
-        <h3>2. Date of Birth Realism Noise</h3>
-        <p class="hint">Inject partial formats and off-by-one shifts to simulate real record collection.</p>
+        <h3>4. Realism Noise &amp; Missingness</h3>
+        <p class="hint">Inject partial formats, typos, and omitted attributes to reflect operational real-world data collection.</p>
 
-        <label class="checkbox-row" style="margin-bottom: 12px;">
+        <label class="checkbox-row" style="margin-bottom: 8px;">
           <input type="checkbox" id="gen_enable_dob_noise" checked />
-          <span><b>Enable Date of Birth Noise</b></span>
+          <span><b>Enable Date of Birth Realism Noise</b></span>
         </label>
 
-        <label class="slider-row">
-          <span>Year-Only format ("YYYY") rate <b id="gen_rate_dob_year_only_val">10%</b></span>
-          <input type="range" id="gen_rate_dob_year_only" min="0" max="0.40" step="0.02" value="0.10" />
-        </label>
+        <div class="gen-sub-noise-group">
+          <label class="slider-row">
+            <span>Year-Only format ("YYYY") rate <b id="gen_rate_dob_year_only_val">10%</b></span>
+            <input type="range" id="gen_rate_dob_year_only" min="0" max="0.40" step="0.02" value="0.10" />
+          </label>
+          <label class="slider-row">
+            <span>Year-Month format ("YYYY-MM") rate <b id="gen_rate_dob_year_month_val">10%</b></span>
+            <input type="range" id="gen_rate_dob_year_month" min="0" max="0.40" step="0.02" value="0.10" />
+          </label>
+          <label class="slider-row">
+            <span>&plusmn;1 Day Shift ("YYYY-MM-DD" &plusmn;1d) rate <b id="gen_rate_dob_shift_val">12%</b></span>
+            <input type="range" id="gen_rate_dob_shift" min="0" max="0.40" step="0.02" value="0.12" />
+          </label>
+          <label class="slider-row">
+            <span>Missing DOB (unrecorded) rate <b id="gen_drop_dob_rate_val">12%</b></span>
+            <input type="range" id="gen_drop_dob_rate" min="0" max="0.40" step="0.02" value="0.12" />
+          </label>
+        </div>
 
-        <label class="slider-row">
-          <span>Year-Month format ("YYYY-MM") rate <b id="gen_rate_dob_year_month_val">10%</b></span>
-          <input type="range" id="gen_rate_dob_year_month" min="0" max="0.40" step="0.02" value="0.10" />
-        </label>
-
-        <label class="slider-row">
-          <span>±1 Day Shift ("YYYY-MM-DD" ±1d) rate <b id="gen_rate_dob_shift_val">12%</b></span>
-          <input type="range" id="gen_rate_dob_shift" min="0" max="0.40" step="0.02" value="0.12" />
-        </label>
-
-        <label class="slider-row">
-          <span>Missing DOB (unrecorded) rate <b id="gen_drop_dob_rate_val">12%</b></span>
-          <input type="range" id="gen_drop_dob_rate" min="0" max="0.40" step="0.02" value="0.12" />
-        </label>
-      </div>
-
-      <!-- Card 3: Name & Field Missingness -->
-      <div class="gen-card">
-        <h3>3. Name Typos &amp; Field Missingness</h3>
-        <p class="hint">Simulate real-world data collection imperfections and omitted fields.</p>
-
-        <label class="checkbox-row" style="margin-bottom: 12px;">
+        <label class="checkbox-row" style="margin-top: 10px; margin-bottom: 8px;">
           <input type="checkbox" id="gen_enable_name_noise" checked />
-          <span><b>Enable Name Corruption</b></span>
+          <span><b>Enable Name Corruption &amp; Missingness</b></span>
         </label>
 
-        <label class="slider-row">
-          <span>First name corruption (nicknames / typos) <b id="gen_rate_first_noise_val">35%</b></span>
-          <input type="range" id="gen_rate_first_noise" min="0" max="0.70" step="0.05" value="0.35" />
-        </label>
-
-        <label class="slider-row">
-          <span>Last name typo rate <b id="gen_rate_last_noise_val">15%</b></span>
-          <input type="range" id="gen_rate_last_noise" min="0" max="0.50" step="0.05" value="0.15" />
-        </label>
-
-        <label class="slider-row">
-          <span>Missing address &amp; GPS coordinates rate <b id="gen_drop_address_rate_val">10%</b></span>
-          <input type="range" id="gen_drop_address_rate" min="0" max="0.50" step="0.02" value="0.10" />
-        </label>
-
-        <label class="slider-row">
-          <span>Missing phone number rate <b id="gen_drop_phone_rate_val">8%</b></span>
-          <input type="range" id="gen_drop_phone_rate" min="0" max="0.50" step="0.02" value="0.08" />
-        </label>
-
-        <label class="slider-row">
-          <span>Missing email address rate <b id="gen_drop_email_rate_val">8%</b></span>
-          <input type="range" id="gen_drop_email_rate" min="0" max="0.50" step="0.02" value="0.08" />
-        </label>
-      </div>
-
-      <!-- Card 4: Digital Footprints & Identity -->
-      <div class="gen-card">
-        <h3>4. Digital Identity &amp; Persistence</h3>
-        <p class="hint">Configure hardware/ad token adoption and employer identity anchors.</p>
-
-        <label class="slider-row">
-          <span>Persistent hardware / ad token rate <b id="gen_token_rate_val">60%</b></span>
-          <input type="range" id="gen_token_rate" min="0" max="1.0" step="0.05" value="0.60" />
-        </label>
-
-        <label class="slider-row">
-          <span>Employer ID &amp; work email assignment <b id="gen_employer_rate_val">70%</b></span>
-          <input type="range" id="gen_employer_rate" min="0" max="1.0" step="0.05" value="0.70" />
-        </label>
+        <div class="gen-sub-noise-group">
+          <label class="slider-row">
+            <span>First name corruption (nicknames / typos) <b id="gen_rate_first_noise_val">35%</b></span>
+            <input type="range" id="gen_rate_first_noise" min="0" max="0.70" step="0.05" value="0.35" />
+          </label>
+          <label class="slider-row">
+            <span>Last name typo rate <b id="gen_rate_last_noise_val">15%</b></span>
+            <input type="range" id="gen_rate_last_noise" min="0" max="0.50" step="0.05" value="0.15" />
+          </label>
+          <label class="slider-row">
+            <span>Missing address &amp; GPS coordinates rate <b id="gen_drop_address_rate_val">10%</b></span>
+            <input type="range" id="gen_drop_address_rate" min="0" max="0.50" step="0.02" value="0.10" />
+          </label>
+          <label class="slider-row">
+            <span>Missing phone number rate <b id="gen_drop_phone_rate_val">8%</b></span>
+            <input type="range" id="gen_drop_phone_rate" min="0" max="0.50" step="0.02" value="0.08" />
+          </label>
+          <label class="slider-row">
+            <span>Missing email address rate <b id="gen_drop_email_rate_val">8%</b></span>
+            <input type="range" id="gen_drop_email_rate" min="0" max="0.50" step="0.02" value="0.08" />
+          </label>
+        </div>
       </div>
     </div>
 
-    <!-- Generator Actions -->
-    <div class="gen-actions-bar">
-      <div class="gen-actions-left">
-        <button type="button" id="genGenerateBtn" class="gen-btn-primary">⚡ Generate &amp; Reload Dataset</button>
-        <button type="button" id="genSaveJsonBtn" class="gen-btn-secondary" title="Save dataset as a JSON file to a location of your choice">💾 Save Dataset As…</button>
-        <button type="button" id="genResetBtn" class="gen-btn-secondary">↺ Reset Generator Defaults</button>
+    <!-- Live Interactive Mode Action Bar -->
+    <div class="gen-live-panel" id="genLivePanel">
+      <div class="gen-scale-warning" id="genLiveScaleWarning" hidden>
+        ⚠️ <strong>Large population selected:</strong> Generating &gt; 500 individuals live in the browser will perform entity clustering on thousands of records and may take several seconds. For datasets &gt; 1,000 entities or millions of rows, switch to <strong>Massive Batch Export</strong> mode for high-speed disk streaming!
       </div>
-      <div class="gen-actions-right">
-        <span id="genStatusBadge" class="gen-status-badge">Ready</span>
+      <div class="gen-actions-bar">
+        <div class="gen-actions-left">
+          <button type="button" id="genGenerateBtn" class="gen-btn-primary">⚡ Generate &amp; Reload Dataset</button>
+          <button type="button" id="genSaveJsonBtn" class="gen-btn-secondary" title="Save dataset as a JSON file to a location of your choice">💾 Save Dataset As…</button>
+          <button type="button" id="genResetBtn" class="gen-btn-secondary">↺ Reset Generator Defaults</button>
+        </div>
+        <div class="gen-actions-right">
+          <span id="genStatusBadge" class="gen-status-badge">Ready</span>
+        </div>
+      </div>
+
+      <!-- Dynamic Summary Card (populated after generation) -->
+      <div id="genSummarySection" class="gen-summary-section" hidden>
+        <div class="gen-summary-header">
+          <div class="gen-summary-title">
+            <span class="pulse-indicator"></span>
+            <span>Dataset Generation Summary</span>
+          </div>
+          <div class="gen-summary-actions">
+            <button type="button" class="gen-link-btn" id="genSummarySaveBtn">💾 Save As…</button>
+            <button type="button" class="gen-link-btn" id="genGoEntitiesBtn">View Resolved Clusters →</button>
+            <button type="button" class="gen-link-btn" id="genGoMapBtn">View Trajectory Map →</button>
+          </div>
+        </div>
+        <div class="gen-summary-content" id="genSummaryContent"></div>
       </div>
     </div>
 
-    <!-- Dynamic Summary Card (populated after generation) -->
-    <div id="genSummarySection" class="gen-summary-section" hidden>
-      <div class="gen-summary-header">
-        <div class="gen-summary-title">
-          <span class="pulse-indicator"></span>
-          <span>Dataset Generation Summary</span>
-        </div>
-        <div class="gen-summary-actions">
-          <button type="button" class="gen-link-btn" id="genSummarySaveBtn">💾 Save As…</button>
-          <button type="button" class="gen-link-btn" id="genGoEntitiesBtn">View Resolved Clusters →</button>
-          <button type="button" class="gen-link-btn" id="genGoMapBtn">View Trajectory Map →</button>
+    <!-- Massive Batch Export Mode Panel -->
+    <div class="gen-batch-panel" id="genBatchPanel" hidden>
+      <div class="batch-header">
+        <div>
+          <h3>🚀 Massive Batch Streaming Engine (High-Throughput Disk Stream)</h3>
+          <p class="hint">Streams hundreds of millions of synthetic records directly to disk in <i>O(1)</i> memory (~2 MB buffer) at ~500k–1.2M rows/second.</p>
         </div>
       </div>
-      <div class="gen-summary-content" id="genSummaryContent"></div>
+
+      <div class="batch-config-grid">
+        <div class="batch-field">
+          <label for="gen_batch_path">Output Destination File Path:</label>
+          <input type="text" id="gen_batch_path" value="backend/data/massive_synthetic.jsonl" class="batch-input" />
+        </div>
+        <div class="batch-field">
+          <label for="gen_batch_format">Streaming Export Format:</label>
+          <select id="gen_batch_format" class="gen-select">
+            <option value="jsonl" selected>JSON Lines (.jsonl) &mdash; Industry Standard Streaming</option>
+            <option value="csv">Comma-Separated Values (.csv) &mdash; Tabular Analytics</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Batch Estimator Stats Card -->
+      <div class="batch-est-card">
+        <div class="batch-est-item">
+          <span class="batch-est-label">Target Individuals</span>
+          <span class="batch-est-val" id="batchEstEntities">30</span>
+        </div>
+        <div class="batch-est-item">
+          <span class="batch-est-label">Est. Total Observations</span>
+          <span class="batch-est-val" id="batchEstObs">~306 obs</span>
+        </div>
+        <div class="batch-est-item">
+          <span class="batch-est-label">Est. Uncompressed File Size</span>
+          <span class="batch-est-val" id="batchEstSize">~58 KB</span>
+        </div>
+        <div class="batch-est-item">
+          <span class="batch-est-label">Memory Overhead</span>
+          <span class="batch-est-val text-good">O(1) Fixed RAM</span>
+        </div>
+        <div class="batch-est-item">
+          <span class="batch-est-label">Est. Generation Time</span>
+          <span class="batch-est-val" id="batchEstTime">&lt; 0.1s</span>
+        </div>
+      </div>
+
+      <!-- Batch Action Controls -->
+      <div class="batch-actions-row">
+        <div class="batch-actions-left">
+          <button type="button" id="genBatchPreviewBtn" class="gen-btn-accent" title="Sample 300 observations across configured tiers and immediately explore on the map">
+            👁 Sample &amp; Preview in Map
+          </button>
+          <button type="button" id="genBatchStartBtn" class="gen-btn-primary">
+            ⚡ Start Massive Batch Export
+          </button>
+          <button type="button" id="genBatchCancelBtn" class="gen-btn-danger" hidden>
+            ⏹ Cancel Export
+          </button>
+        </div>
+        <div class="batch-actions-right">
+          <span id="genBatchStatusBadge" class="gen-status-badge">Idle</span>
+        </div>
+      </div>
+
+      <!-- Live Streaming Progress Bar & Monitor -->
+      <div class="batch-progress-wrap" id="genBatchProgressWrap" hidden>
+        <div class="batch-progress-head">
+          <span class="batch-progress-title">
+            <span class="pulse-indicator"></span> Streaming records to disk...
+          </span>
+          <span class="batch-progress-pct" id="batchProgressPct">0%</span>
+        </div>
+        <div class="batch-progress-track">
+          <div class="batch-progress-fill" id="genBatchProgressBar" style="width: 0%;"></div>
+        </div>
+        <div class="batch-progress-metrics">
+          <span class="batch-metric">Individuals: <strong id="batchProgEntities">0 / 0</strong></span>
+          <span class="batch-metric">Observations: <strong id="batchProgObs">0</strong></span>
+          <span class="batch-metric">Throughput: <strong id="batchProgRate">0 rows/s</strong></span>
+          <span class="batch-metric">Elapsed: <strong id="batchProgElapsed">0s</strong></span>
+          <span class="batch-metric">ETA: <strong id="batchProgEta">--</strong></span>
+        </div>
+        <div class="batch-complete-alert" id="batchCompleteAlert" hidden></div>
+      </div>
     </div>
   </section>
 </main>

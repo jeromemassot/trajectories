@@ -29,6 +29,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from resolution import resolve, extract_all_candidate_features
 from data_gen import make_population
+from massive_gen import BatchGenerationJob, generate_preview_sample
 
 DATA_PATH = BACKEND_DIR / "data" / "mock_observations.json"
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
@@ -81,6 +82,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/health":
             self._send_json({"status": "ok", "n_observations": len(OBSERVATIONS)})
+            return
+
+        if route == "/api/generate/batch/status":
+            self._send_json(BatchGenerationJob().get_status())
             return
 
         if route == "/api/dataset":
@@ -142,6 +147,24 @@ class Handler(BaseHTTPRequestHandler):
                 gen_params = {
                     "seed": int(body.get("seed", 42)),
                     "target_obs": int(body["target_obs"]) if body.get("target_obs") is not None else None,
+                    "n_individuals": int(body["n_individuals"]) if body.get("n_individuals") is not None else None,
+                    "obs_distribution": str(body.get("obs_distribution", "gaussian")),
+                    "mean_obs_per_person": float(body.get("mean_obs_per_person", 10.0)),
+                    "std_obs_per_person": float(body.get("std_obs_per_person", 3.5)),
+                    "min_obs_per_person": int(body.get("min_obs_per_person", 2)),
+                    "max_obs_per_person": int(body.get("max_obs_per_person", 80)),
+                    "pct_never_moved": float(body["pct_never_moved"]) if body.get("pct_never_moved") is not None else None,
+                    "pct_county_moved": float(body["pct_county_moved"]) if body.get("pct_county_moved") is not None else None,
+                    "pct_state_moved": float(body["pct_state_moved"]) if body.get("pct_state_moved") is not None else None,
+                    "pct_cross_us_moved": float(body["pct_cross_us_moved"]) if body.get("pct_cross_us_moved") is not None else None,
+                    "mean_county_moves": float(body.get("mean_county_moves", 1.8)),
+                    "std_county_moves": float(body.get("std_county_moves", 0.8)),
+                    "mean_state_moves": float(body.get("mean_state_moves", 2.2)),
+                    "std_state_moves": float(body.get("std_state_moves", 0.9)),
+                    "mean_cross_moves": float(body.get("mean_cross_moves", 3.1)),
+                    "std_cross_moves": float(body.get("std_cross_moves", 1.2)),
+                    "pct_household": float(body.get("pct_household", 5.0)),
+                    "pct_collision": float(body.get("pct_collision", 2.0)),
                     "n_neighborhood": int(body.get("n_neighborhood", 6)),
                     "n_intrastate": int(body.get("n_intrastate", 6)),
                     "n_interstate": int(body.get("n_interstate", 6)),
@@ -173,6 +196,50 @@ class Handler(BaseHTTPRequestHandler):
                     with open(DATA_PATH, "w") as f:
                         json.dump(OBSERVATIONS, f, indent=2)
 
+                threshold = float(body.get("threshold", 0.65))
+                weights = body.get("weights") or {}
+                use_persistent_tokens = bool(body.get("use_persistent_tokens", True))
+                result = resolve(
+                    OBSERVATIONS,
+                    weights=weights,
+                    threshold=threshold,
+                    precomputed_features=CANDIDATE_FEATURES,
+                    use_persistent_tokens=use_persistent_tokens,
+                )
+                self._send_json({
+                    "status": "ok",
+                    "observations": OBSERVATIONS,
+                    "summary": summary,
+                    "result": result,
+                })
+            except Exception as e:
+                self._send_json({"error": str(e)}, 500)
+            return
+
+        if parsed.path == "/api/generate/batch":
+            try:
+                out_path = body.get("output_path") or str(BACKEND_DIR / "data" / "massive_dataset.jsonl")
+                out_p = Path(out_path).resolve()
+                ok, msg = BatchGenerationJob().start(body, out_p)
+                if ok:
+                    self._send_json({"status": "ok", "job_id": msg, "output_path": str(out_p)})
+                else:
+                    self._send_json({"error": msg}, 400)
+            except Exception as e:
+                self._send_json({"error": str(e)}, 500)
+            return
+
+        if parsed.path == "/api/generate/batch/cancel":
+            cancelled = BatchGenerationJob().cancel()
+            self._send_json({"status": "ok", "cancelled": cancelled})
+            return
+
+        if parsed.path == "/api/generate/preview":
+            try:
+                target_preview_obs = int(body.get("target_preview_obs", 400))
+                new_obs, summary = generate_preview_sample(body, target_obs=target_preview_obs)
+                OBSERVATIONS = new_obs
+                CANDIDATE_FEATURES = extract_all_candidate_features(OBSERVATIONS)
                 threshold = float(body.get("threshold", 0.65))
                 weights = body.get("weights") or {}
                 use_persistent_tokens = bool(body.get("use_persistent_tokens", True))
