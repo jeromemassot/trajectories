@@ -48,6 +48,12 @@
     renderObservationsTable();
 
     await runResolve();
+
+    window.addEventListener("resize", () => {
+      if (state.map) {
+        state.map.invalidateSize();
+      }
+    });
   }
 
   function initTheme() {
