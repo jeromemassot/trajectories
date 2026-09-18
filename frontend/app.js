@@ -1782,12 +1782,10 @@
 
     // Confounders
     const pctHh = getNum("gen_pct_household");
-    const hhCount = Math.round(n * (pctHh / 100));
-    setVal("gen_pct_household_val", `${pctHh.toFixed(1)}% (~${Math.max(2, hhCount + (hhCount % 2))} entities)`);
+    setVal("gen_pct_household_val", `${pctHh.toFixed(1)}%`);
 
     const pctColl = getNum("gen_pct_collision");
-    const collCount = Math.round(n * (pctColl / 100));
-    setVal("gen_pct_collision_val", `${pctColl.toFixed(1)}% (~${Math.max(2, collCount + (collCount % 2))} entities)`);
+    setVal("gen_pct_collision_val", `${pctColl.toFixed(1)}%`);
 
     // Noise
     const pct = (id) => `${Math.round(getNum(id) * 100)}%`;

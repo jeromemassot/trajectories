@@ -139,7 +139,7 @@ main {
   margin: 10px 0;
   font-size: 0.85rem;
 }
-.slider-row span { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.slider-row span { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .slider-row input[type=range] { width: 100%; }
 .weight-grid {
   display: grid;
