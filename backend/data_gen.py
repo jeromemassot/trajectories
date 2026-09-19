@@ -679,10 +679,10 @@ def make_population(
         from massive_gen import generate_person_stream, AddressSynthesizer
         random.seed(seed)
         tot_entities = int(n_individuals if n_individuals is not None else 30)
-        p_never = float(pct_never_moved if pct_never_moved is not None else 0.40)
+        p_never = float(pct_never_moved if pct_never_moved is not None else 0.50)
         p_county = float(pct_county_moved if pct_county_moved is not None else 0.30)
-        p_state = float(pct_state_moved if pct_state_moved is not None else 0.20)
-        p_cross = float(pct_cross_us_moved if pct_cross_us_moved is not None else 0.10)
+        p_state = float(pct_state_moved if pct_state_moved is not None else 0.15)
+        p_cross = float(pct_cross_us_moved if pct_cross_us_moved is not None else 0.05)
 
         cfg = {
             "obs_distribution": obs_distribution,

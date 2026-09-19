@@ -306,10 +306,10 @@ def generate_person_stream(
         home_city = city_override
     else:
         tier = sample_relocation_tier(
-            config.get("pct_never_moved", 0.40),
+            config.get("pct_never_moved", 0.50),
             config.get("pct_county_moved", 0.30),
-            config.get("pct_state_moved", 0.20),
-            config.get("pct_cross_us_moved", 0.10),
+            config.get("pct_state_moved", 0.15),
+            config.get("pct_cross_us_moved", 0.05),
             rng=rng,
         )
         origin_city_entry = rng.choice(CITIES)
