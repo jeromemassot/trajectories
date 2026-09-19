@@ -318,50 +318,60 @@ def generate_person_stream(
     moves_count = sample_move_count(tier, config, rng=rng)
 
     residence_timeline = []
+    used_residences = set()
+
     if tier == "never":
         venues = addr_synth.get_city_venues(home_city, needed=max(8, n_obs // 2))
         primary_res = venues[0]
+        used_residences.add(primary_res)
         residence_timeline.append((START_DATE, home_city, primary_res))
 
     elif tier == "county":
-        venues = addr_synth.get_city_venues(home_city, needed=max(12, moves_count + 5))
+        needed_venues = max(15, moves_count + 10)
+        venues = addr_synth.get_city_venues(home_city, needed=needed_venues)
         step_idx = max(1, len(timeline_dates) // (moves_count + 1))
         for m_i in range(moves_count + 1):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            res_addr = venues[m_i % len(venues)]
+            res_addr = venues[m_i]
+            used_residences.add(res_addr)
             residence_timeline.append((m_date, home_city, res_addr))
 
     elif tier == "state":
         state_code = home_city.split(",")[1].strip() if "," in home_city else "TX"
         state_pool = STATE_CITIES.get(state_code, [home_city])
         route_cities = [home_city]
-        remaining = [c for c in state_pool if c != home_city]
+        visited_cities = {home_city}
         for _ in range(moves_count):
+            remaining = [c for c in state_pool if c not in visited_cities]
             if remaining:
                 next_c = rng.choice(remaining)
-                remaining = [c for c in state_pool if c != next_c]
+                visited_cities.add(next_c)
+                route_cities.append(next_c)
             else:
-                next_c = home_city
-            route_cities.append(next_c)
+                route_cities.append(route_cities[-1])
 
         step_idx = max(1, len(timeline_dates) // len(route_cities))
         for m_i, c_name in enumerate(route_cities):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            c_venues = addr_synth.get_city_venues(c_name, needed=8)
-            res_addr = c_venues[0]
+            c_venues = addr_synth.get_city_venues(c_name, needed=max(12, m_i + 5))
+            avail_res = [v for v in c_venues if v not in used_residences]
+            res_addr = avail_res[0] if avail_res else c_venues[0]
+            used_residences.add(res_addr)
             residence_timeline.append((m_date, c_name, res_addr))
 
     elif tier == "cross_us":
         all_state_codes = list(STATE_CITIES.keys())
         route_cities = [home_city]
         cur_state = home_city.split(",")[1].strip() if "," in home_city else "TX"
+        visited_states = {cur_state}
         for _ in range(moves_count):
-            avail_states = [s for s in all_state_codes if s != cur_state]
+            avail_states = [s for s in all_state_codes if s not in visited_states]
             if not avail_states:
-                avail_states = all_state_codes
+                avail_states = [s for s in all_state_codes if s != cur_state]
             next_state = rng.choice(avail_states)
+            visited_states.add(next_state)
             cur_state = next_state
             next_c = rng.choice(STATE_CITIES[next_state])
             route_cities.append(next_c)
@@ -370,8 +380,10 @@ def generate_person_stream(
         for m_i, c_name in enumerate(route_cities):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            c_venues = addr_synth.get_city_venues(c_name, needed=8)
-            res_addr = c_venues[0]
+            c_venues = addr_synth.get_city_venues(c_name, needed=max(12, m_i + 5))
+            avail_res = [v for v in c_venues if v not in used_residences]
+            res_addr = avail_res[0] if avail_res else c_venues[0]
+            used_residences.add(res_addr)
             residence_timeline.append((m_date, c_name, res_addr))
 
     active_phones = [carrier.acquire_phone(home_city, START_DATE)]
@@ -398,16 +410,32 @@ def generate_person_stream(
 
         active_city = residence_timeline[cur_res_idx][1]
         active_res = residence_timeline[cur_res_idx][2]
-        city_venues = addr_synth.get_city_venues(active_city, needed=max(10, n_obs))
+        retired_residences = {r[2] for r in residence_timeline[:cur_res_idx]}
 
-        candidates = [v for v in city_venues if (v[1], v[2]) != prev_coords]
+        city_venues = addr_synth.get_city_venues(active_city, needed=max(15, n_obs))
+
+        candidates = [
+            v for v in city_venues
+            if (v[1], v[2]) != prev_coords and v not in retired_residences and v != active_res
+        ]
         if not candidates:
-            candidates = city_venues
+            city_venues = addr_synth.get_city_venues(active_city, needed=len(city_venues) + 8)
+            candidates = [
+                v for v in city_venues
+                if (v[1], v[2]) != prev_coords and v not in retired_residences and v != active_res
+            ]
+            if not candidates:
+                candidates = [v for v in city_venues if (v[1], v[2]) != prev_coords and v not in retired_residences]
 
-        if active_res in candidates and rng.random() < 0.55:
+        is_home_available = (active_res[1], active_res[2]) != prev_coords
+        if is_home_available and rng.random() < 0.25:
+            chosen_venue = active_res
+        elif candidates:
+            chosen_venue = rng.choice(candidates)
+        elif is_home_available:
             chosen_venue = active_res
         else:
-            chosen_venue = rng.choice(candidates)
+            chosen_venue = city_venues[0]
 
         prev_coords = (chosen_venue[1], chosen_venue[2])
 

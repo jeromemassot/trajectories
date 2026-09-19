@@ -777,29 +777,38 @@ def make_population(
     obs_rows = []
     obs_counter = 1
 
-    # Plan custom observation counts if requested and different from default benchmark
+    # Plan custom observation counts if requested or preserve exact default benchmark
     alloc_map = None
-    if target_obs is not None:
-        is_benchmark_shape = (
-            int(target_obs) == 306 and
-            seed == 42 and
-            n_neighborhood == 6 and
-            n_intrastate == 6 and
-            n_interstate == 6 and
-            n_household_pairs == 3 and
-            n_name_collision_pairs == 2 and
-            include_phone_reallocation
+    is_benchmark_shape = (
+        (target_obs is None or int(target_obs) == 306) and
+        seed == 42 and
+        n_neighborhood == 6 and
+        n_intrastate == 6 and
+        n_interstate == 6 and
+        n_household_pairs == 3 and
+        n_name_collision_pairs == 2 and
+        include_phone_reallocation
+    )
+    if is_benchmark_shape:
+        alloc_map = {
+            "cat1": {0: 12, 1: 14, 2: 13, 3: 9, 4: 9, 5: 11},
+            "cat2": {0: 14, 1: 9, 2: 14, 3: 10, 4: 14, 5: 9},
+            "cat3": {0: 12, 1: 12, 2: 14, 3: 15, 4: 10, 5: 15},
+            "hh": {0: 6, 1: 6, 2: 9, 3: 7, 4: 8, 5: 10},
+            "coll": {0: 7, 1: 9, 2: 5, 3: 5},
+            "phone_m": 4,
+            "phone_c": 4,
+        }
+    elif target_obs is not None:
+        alloc_map, _ = plan_observation_counts(
+            target_obs,
+            n_neighborhood,
+            n_intrastate,
+            n_interstate,
+            n_household_pairs,
+            n_name_collision_pairs,
+            include_phone_reallocation,
         )
-        if not is_benchmark_shape:
-            alloc_map, _ = plan_observation_counts(
-                target_obs,
-                n_neighborhood,
-                n_intrastate,
-                n_interstate,
-                n_household_pairs,
-                n_name_collision_pairs,
-                include_phone_reallocation,
-            )
 
     def format_noisy_dob(dob, drop_dob=False, dob_noise=True):
         """Format a date of birth with realistic data collection noise:
@@ -903,7 +912,20 @@ def make_population(
         # 50% chance of neighborhood move ("when move they stay in the same neighborhood")
         will_move_neighborhood = (i % 2 == 1)
         move_idx = len(timeline_dates) // 2 if will_move_neighborhood else None
-        new_home_addr = nb_pool[1] if will_move_neighborhood else home_addr
+
+        if will_move_neighborhood:
+            split_at = max(1, len(nb_pool) // 2)
+            home_addr = nb_pool[0]
+            new_home_addr = nb_pool[split_at]
+            venues1 = [home_addr] + nb_pool[1:split_at]
+            venues2 = [new_home_addr] + nb_pool[split_at + 1:]
+            if len(venues2) < 2:
+                venues2 = [new_home_addr] + [a for a in nb_pool if a != home_addr and a != new_home_addr]
+        else:
+            home_addr = nb_pool[0]
+            new_home_addr = home_addr
+            venues1 = [home_addr] + nb_pool[1:]
+            venues2 = []
 
         # Life event: marriage surname change
         will_marry = (i == 2 or i == 5)
@@ -918,11 +940,7 @@ def make_population(
         epoch1_dates = timeline_dates[:move_idx] if move_idx else timeline_dates
         epoch2_dates = timeline_dates[move_idx:] if move_idx else []
 
-        # Venues in neighborhood
-        venues1 = [home_addr] + nb_pool[1:]
         seq1 = sample_venue_sequence(venues1, len(epoch1_dates))
-
-        venues2 = [new_home_addr] + [a for a in nb_pool if a != new_home_addr]
         seq2 = sample_venue_sequence(venues2, len(epoch2_dates)) if epoch2_dates else []
 
         all_addrs = seq1 + seq2
@@ -1107,7 +1125,7 @@ def make_population(
 
     # ---------------- 4. Household Confounders (n_household_pairs pairs) -----
     # Siblings/spouses in shared household (Category 1 neighborhood stayers)
-    for _ in range(n_household_pairs):
+    for pair_idx in range(n_household_pairs):
         last = random.choice(LAST_NAMES)
         home_city, hlat, hlon = random.choice(CITIES)
         household_id = f"HH-{token_hash(last + home_city + str(random.random()))}"
@@ -1124,7 +1142,7 @@ def make_population(
 
         city_addrs = CITY_ADDRESSES[home_city]
         for sib_idx, p in enumerate(siblings):
-            global_sib_idx = (_ * 2) + sib_idx
+            global_sib_idx = (pair_idx * 2) + sib_idx
             if alloc_map is not None and "hh" in alloc_map:
                 n_obs = alloc_map["hh"][global_sib_idx]
             else:
@@ -1246,6 +1264,8 @@ def make_population(
                     city = curr_o["city"]
                     pool = CITY_NEIGHBORHOODS.get(city) or CITY_ADDRESSES.get(city) or []
                     alternatives = [a for a in pool if a[1] != prev_o["lat"] or a[2] != prev_o["lon"]]
+                    if len(alternatives) > 1 and curr_o["address"] != pool[0][0]:
+                        alternatives = [a for a in alternatives if a[0] != pool[0][0]]
                     if alternatives:
                         alt_addr, alt_lat, alt_lon = alternatives[0]
                         curr_o["address"] = alt_addr

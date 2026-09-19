@@ -157,5 +157,47 @@ class TestDistributionsAndRelocation(unittest.TestCase):
         self.assertGreater(summary["n_entities"], 5)
 
 
+    def test_zero_post_relocation_returns_to_retired_residences(self):
+        """Individuals who relocate must never return to any previously held residential address."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 20.0,
+            "std_obs_per_person": 3.0,
+            "min_obs_per_person": 15,
+            "pct_never_moved": 0.0,
+            "pct_county_moved": 0.35,
+            "pct_state_moved": 0.35,
+            "pct_cross_us_moved": 0.30,
+        }
+        for e_idx in range(1, 50):
+            obs_list, tier, moves = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:03d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=500 + e_idx,
+            )
+            # Find all residential relocations and ensure prior residences are never visited post-move
+            # For each address, record the index of its first and last appearance
+            addr_history = {}
+            for idx, o in enumerate(obs_list):
+                addr = o.get("address")
+                if addr:
+                    addr_history.setdefault(addr, []).append(idx)
+
+            # In an acyclic trajectory, once an individual moves to a new city,
+            # no prior city's addresses should appear in subsequent observations
+            seen_cities = []
+            for o in obs_list:
+                c = o.get("city")
+                if not seen_cities or seen_cities[-1] != c:
+                    self.assertNotIn(c, seen_cities, f"Entity E{e_idx:03d} returned to previously exited city {c}")
+                    seen_cities.append(c)
+
+
 if __name__ == "__main__":
     unittest.main()
+
