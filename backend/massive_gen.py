@@ -387,7 +387,13 @@ def generate_person_stream(
             residence_timeline.append((m_date, c_name, res_addr))
 
     active_phones = [carrier.acquire_phone(home_city, START_DATE)]
-    personal_email = f"{first.lower()}.{last.lower()}@{rng.choice(EMAIL_DOMAINS)}"
+    email_domain = rng.choice(EMAIL_DOMAINS)
+    personal_email = f"{first.lower()}.{last.lower()}@{email_domain}"
+
+    # Career lifecycle: job start date if employed
+    job_start_date = START_DATE
+    if employer_id and rng.random() < 0.30 and len(timeline_dates) >= 3:
+        job_start_date = timeline_dates[len(timeline_dates) // 3]
     work_email = f"{first.lower()}_{last.lower()}@{employer_id.lower()}.com" if employer_id else None
 
     # Establish business address per visited city if individual has an employer
@@ -400,16 +406,34 @@ def generate_person_stream(
             bus_addr = avail_bus[0] if avail_bus else c_venues[-1]
             business_addresses[c_name] = bus_addr
 
-    will_marry = rng.random() < 0.15
+    # Life events: Marriage & Divorce lifecycle
+    will_marry = rng.random() < 0.20
     marriage_date = timeline_dates[len(timeline_dates) // 2] if will_marry else None
     married_last = rng.choice(LAST_NAMES) if will_marry else last
+    married_email = f"{first.lower()}.{married_last.lower()}@{email_domain}" if will_marry else personal_email
+
+    will_divorce = will_marry and (rng.random() < 0.25) and (len(timeline_dates) >= 4)
+    divorce_date = timeline_dates[(len(timeline_dates) * 3) // 4] if will_divorce else None
+    divorce_revert = will_divorce and (rng.random() < 0.50)
 
     observations = []
     cur_res_idx = 0
 
     for idx, d in enumerate(timeline_dates):
         obs_id = f"O{obs_counter_start + idx:05d}"
-        cur_last = married_last if (will_marry and d >= marriage_date) else last
+
+        # Life stage: Marriage and Divorce surname and email evolution
+        if will_divorce and d >= divorce_date:
+            cur_last = last if divorce_revert else married_last
+            cur_personal_email = personal_email if divorce_revert else married_email
+        elif will_marry and d >= marriage_date:
+            cur_last = married_last
+            cur_personal_email = married_email
+        else:
+            cur_last = last
+            cur_personal_email = personal_email
+
+        cur_work_email = work_email if (employer_id and d >= job_start_date) else None
 
         while cur_res_idx + 1 < len(residence_timeline) and d >= residence_timeline[cur_res_idx + 1][0]:
             cur_res_idx += 1
@@ -423,26 +447,26 @@ def generate_person_stream(
 
         sighting_emails = []
         em_seed = rng.random()
-        if em_seed < 0.50 and personal_email:
-            sighting_emails = [personal_email]
-        elif em_seed < 0.85 and personal_email and work_email:
-            sighting_emails = [personal_email, work_email]
-        elif em_seed < 0.95 and work_email:
-            sighting_emails = [work_email]
+        if em_seed < 0.50 and cur_personal_email:
+            sighting_emails = [cur_personal_email]
+        elif em_seed < 0.85 and cur_personal_email and cur_work_email:
+            sighting_emails = [cur_personal_email, cur_work_email]
+        elif em_seed < 0.95 and cur_work_email:
+            sighting_emails = [cur_work_email]
 
         # Account/service registration location: strictly Home address or Business address
-        if active_bus_res is not None:
+        if active_bus_res is not None and cur_work_email is not None:
             # Corporate transaction: use business address
-            if work_email and work_email in sighting_emails and personal_email not in sighting_emails:
+            if cur_work_email in sighting_emails and cur_personal_email not in sighting_emails:
                 chosen_loc = active_bus_res
-            elif work_email and work_email in sighting_emails:
+            elif cur_work_email in sighting_emails:
                 # Both personal and work email: 50% business, 50% home
                 chosen_loc = active_bus_res if rng.random() < 0.50 else active_home_res
             else:
                 # Personal transaction: 85% home address, 15% business address
                 chosen_loc = active_bus_res if rng.random() < 0.15 else active_home_res
         else:
-            # No employer/business: 100% home address
+            # No employer/business active at this date: 100% home address
             chosen_loc = active_home_res
 
         row = build_observation_row(
