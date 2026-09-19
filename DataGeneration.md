@@ -92,25 +92,18 @@ To ensure the entity resolution algorithm does not overfit to naive heuristics, 
 
 ---
 
-## 4. Spatial Locality, Relocation Plausibility & Anti-Oscillation Guarantees
+## 4. Account & Service Registration Location Model (Home vs. Business Address)
 
-### Non-Consecutive Venue Sampling
-Rather than alternating between two fixed coordinates, `sample_venue_sequence()` selects candidates from a pool of authentic city addresses, guaranteeing $c_{t} \neq c_{t-1}$:
+Rather than simulating continuous GPS location tracking or arbitrary daily venue hops (e.g. coffee shops, grocery stores, gyms), the generator models **account and service registrations** (e.g. applying for a new residential/business phone line, broadband internet provider, utility service, or bank account).
 
-```python
-def sample_venue_sequence(pool, n_samples):
-    seq = []
-    prev = None
-    for _ in range(n_samples):
-        candidates = [p for p in pool if p != prev]
-        chosen = random.choice(candidates)
-        seq.append(chosen)
-        prev = chosen
-    return seq
-```
+Under this real-world identity paradigm, every observation location is strictly one of two places:
+1. **Individual Home Address**: The person's primary residential address at that point in time. It remains constant throughout residential stability periods and updates only when the individual undergoes a genuine relocation event according to their mobility tier.
+2. **Individual Business Address**: The physical workplace or employer office address (when the individual is employed and registering a business phone line, corporate account, or work-related service).
 
-### Post-Processing Duplicate Elimination
-Even when confounder common dates or life events inject specific addresses, a post-processing validation step iterates over each entity's chronological trajectory. If $c_{t} == c_{t-1}$, $c_t$ is reassigned to an alternative venue in that same city, ensuring **0.0% consecutive identical coordinates**.
+### Registration Context Correlation
+- **Work Registrations**: Observations containing corporate work emails or business lines are assigned the employer's business address in that metropolitan area.
+- **Residential Registrations**: Observations for personal phone lines, home broadband, or personal accounts are assigned the individual's active residential home address.
+- **Stationary Realism**: Multiple accounts registered while residing at the same home address naturally share the exact same residential address and geographic coordinates.
 
 ### Human-Centric Spatial & Relocation Model
 Rather than calculating an artificial continuous velocity in km/h, the resolution engine evaluates human mobility across two distinct spatial regimes:

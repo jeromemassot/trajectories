@@ -390,12 +390,21 @@ def generate_person_stream(
     personal_email = f"{first.lower()}.{last.lower()}@{rng.choice(EMAIL_DOMAINS)}"
     work_email = f"{first.lower()}_{last.lower()}@{employer_id.lower()}.com" if employer_id else None
 
+    # Establish business address per visited city if individual has an employer
+    business_addresses = {}
+    if employer_id:
+        all_cities = {entry[1] for entry in residence_timeline}
+        for c_name in all_cities:
+            c_venues = addr_synth.get_city_venues(c_name, needed=10)
+            avail_bus = [v for v in c_venues if v not in used_residences]
+            bus_addr = avail_bus[0] if avail_bus else c_venues[-1]
+            business_addresses[c_name] = bus_addr
+
     will_marry = rng.random() < 0.15
     marriage_date = timeline_dates[len(timeline_dates) // 2] if will_marry else None
     married_last = rng.choice(LAST_NAMES) if will_marry else last
 
     observations = []
-    prev_coords = None
     cur_res_idx = 0
 
     for idx, d in enumerate(timeline_dates):
@@ -409,35 +418,8 @@ def generate_person_stream(
                 active_phones = [carrier.acquire_phone(new_city, d)]
 
         active_city = residence_timeline[cur_res_idx][1]
-        active_res = residence_timeline[cur_res_idx][2]
-        retired_residences = {r[2] for r in residence_timeline[:cur_res_idx]}
-
-        city_venues = addr_synth.get_city_venues(active_city, needed=max(15, n_obs))
-
-        candidates = [
-            v for v in city_venues
-            if (v[1], v[2]) != prev_coords and v not in retired_residences and v != active_res
-        ]
-        if not candidates:
-            city_venues = addr_synth.get_city_venues(active_city, needed=len(city_venues) + 8)
-            candidates = [
-                v for v in city_venues
-                if (v[1], v[2]) != prev_coords and v not in retired_residences and v != active_res
-            ]
-            if not candidates:
-                candidates = [v for v in city_venues if (v[1], v[2]) != prev_coords and v not in retired_residences]
-
-        is_home_available = (active_res[1], active_res[2]) != prev_coords
-        if is_home_available and rng.random() < 0.25:
-            chosen_venue = active_res
-        elif candidates:
-            chosen_venue = rng.choice(candidates)
-        elif is_home_available:
-            chosen_venue = active_res
-        else:
-            chosen_venue = city_venues[0]
-
-        prev_coords = (chosen_venue[1], chosen_venue[2])
+        active_home_res = residence_timeline[cur_res_idx][2]
+        active_bus_res = business_addresses.get(active_city)
 
         sighting_emails = []
         em_seed = rng.random()
@@ -448,6 +430,21 @@ def generate_person_stream(
         elif em_seed < 0.95 and work_email:
             sighting_emails = [work_email]
 
+        # Account/service registration location: strictly Home address or Business address
+        if active_bus_res is not None:
+            # Corporate transaction: use business address
+            if work_email and work_email in sighting_emails and personal_email not in sighting_emails:
+                chosen_loc = active_bus_res
+            elif work_email and work_email in sighting_emails:
+                # Both personal and work email: 50% business, 50% home
+                chosen_loc = active_bus_res if rng.random() < 0.50 else active_home_res
+            else:
+                # Personal transaction: 85% home address, 15% business address
+                chosen_loc = active_bus_res if rng.random() < 0.15 else active_home_res
+        else:
+            # No employer/business: 100% home address
+            chosen_loc = active_home_res
+
         row = build_observation_row(
             obs_id=obs_id,
             entity_id=entity_id,
@@ -456,9 +453,9 @@ def generate_person_stream(
             dob=dob,
             ts_date=d,
             city=active_city,
-            address=chosen_venue[0],
-            lat=chosen_venue[1],
-            lon=chosen_venue[2],
+            address=chosen_loc[0],
+            lat=chosen_loc[1],
+            lon=chosen_loc[2],
             household_id=household_id,
             employer_id=employer_id,
             persistent_token=persistent_token,

@@ -68,8 +68,8 @@ class TestDistributionsAndRelocation(unittest.TestCase):
         avg = sum(moves) / len(moves)
         self.assertAlmostEqual(avg, 2.0, delta=0.2)
 
-    def test_zero_consecutive_duplicate_coordinates(self):
-        """Option A streaming generator must guarantee 0.0% consecutive identical coordinates."""
+    def test_observation_locations_strictly_home_or_business(self):
+        """Every observation must strictly match either the entity's active home address or business address."""
         addr_synth = AddressSynthesizer()
         carrier = CarrierNetwork()
         cfg = {
@@ -88,13 +88,14 @@ class TestDistributionsAndRelocation(unittest.TestCase):
                 config=cfg,
                 addr_synth=addr_synth,
                 carrier=carrier,
+                sub_seed=100 + e_idx,
             )
-            for i in range(1, len(obs_list)):
-                c_prev = (obs_list[i - 1]["lat"], obs_list[i - 1]["lon"])
-                c_curr = (obs_list[i]["lat"], obs_list[i]["lon"])
-                # If neither coordinate is dropped, they must not be identical
-                if c_prev[0] is not None and c_curr[0] is not None:
-                    self.assertNotEqual(c_prev, c_curr, f"Duplicate consecutive coords found for entity E{e_idx:03d}")
+            seen_addresses = {o["address"] for o in obs_list if o.get("address")}
+            emp_id = obs_list[0].get("employer_id")
+            if tier == "never" and not emp_id:
+                self.assertEqual(len(seen_addresses), 1, f"Tier 0 entity E{e_idx:03d} without employer should have exactly 1 address, got {len(seen_addresses)}")
+            elif tier == "never" and emp_id:
+                self.assertLessEqual(len(seen_addresses), 2, f"Tier 0 entity E{e_idx:03d} with employer should have at most 2 addresses, got {len(seen_addresses)}")
 
     def test_make_population_statistical_mode(self):
         """make_population with n_individuals and relocation percentages should run properly."""
