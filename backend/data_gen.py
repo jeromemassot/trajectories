@@ -741,6 +741,8 @@ def make_population(
             if e_idx <= n_hh_entities:
                 hh_group_id = (e_idx - 1) // 2
                 hh_override = f"HH-COHORT-{hh_group_id:04d}"
+                hh_cities = [c[0] for c in CITIES]
+                city_override = hh_cities[hh_group_id % len(hh_cities)]
             elif e_idx <= n_hh_entities + n_coll_entities:
                 coll_group_id = (e_idx - n_hh_entities - 1) // 2
                 gender_cfg = str(gender).strip().lower()

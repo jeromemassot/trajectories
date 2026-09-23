@@ -336,7 +336,86 @@ class TestDistributionsAndRelocation(unittest.TestCase):
         self.assertTrue(any(f in FIRST_NAMES_M for f in firsts_both), "Expected male names in mixed dataset")
         self.assertTrue(any(f in FIRST_NAMES_F for f in firsts_both), "Expected female names in mixed dataset")
 
+    def test_distinct_households_never_share_residential_address(self):
+        """Distinct households must never share a residential address across the dataset."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 12.0,
+            "std_obs_per_person": 3.0,
+            "pct_never_moved": 0.35,
+            "pct_county_moved": 0.35,
+            "pct_state_moved": 0.15,
+            "pct_cross_us_moved": 0.15,
+            "employer_rate": 0.0,  # 100% residential sightings
+        }
+        residence_to_household = {}
+        for e_idx in range(1, 80):
+            obs_list, _, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:04d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=5000 + e_idx,
+            )
+            hh_id = obs_list[0]["household_id"]
+            addresses = {o["address"] for o in obs_list if o.get("address")}
+            for addr in addresses:
+                if addr in residence_to_household:
+                    self.assertEqual(
+                        residence_to_household[addr],
+                        hh_id,
+                        f"Residential address '{addr}' was shared by distinct households {residence_to_household[addr]} and {hh_id}",
+                    )
+                residence_to_household[addr] = hh_id
+
+    def test_same_household_members_share_residential_address(self):
+        """Individuals belonging to the same household cohort must share their residential address."""
+        obs = make_population(
+            n_individuals=60,
+            seed=42,
+            pct_household=10.0,
+            employer_rate=0.0,  # Focus on residential sharing
+        )
+        hh_cohorts = {}
+        for o in obs:
+            hh = o.get("household_id")
+            if hh and hh.startswith("HH-COHORT"):
+                hh_cohorts.setdefault(hh, []).append(o)
+
+        self.assertGreater(len(hh_cohorts), 0, "Expected at least one household cohort")
+        for hh_id, rows in hh_cohorts.items():
+            entities = sorted(list({r["entity_id_truth"] for r in rows}))
+            self.assertEqual(len(entities), 2, f"Household cohort {hh_id} should have 2 members")
+            addrs_e1 = {r["address"] for r in rows if r["entity_id_truth"] == entities[0] and r.get("address")}
+            addrs_e2 = {r["address"] for r in rows if r["entity_id_truth"] == entities[1] and r.get("address")}
+            shared = addrs_e1.intersection(addrs_e2)
+            self.assertTrue(len(shared) > 0, f"Household {hh_id} members {entities} did not share any residential address")
+
+    def test_high_address_variability(self):
+        """Synthesized addresses must exhibit diverse street names, numbers, suffixes, and zip codes."""
+        obs = make_population(n_individuals=50, seed=123)
+        addrs = [o["address"] for o in obs if o.get("address")]
+        self.assertGreater(len(addrs), 300)
+
+        # Unique addresses ratio
+        unique_ratio = len(set(addrs)) / len(addrs)
+        self.assertGreater(unique_ratio, 0.20, f"Address diversity ratio too low: {unique_ratio}")
+
+        # Check for diverse street suffixes and units across sample
+        suffixes_found = set()
+        for suffix in ["St", "Ave", "Blvd", "Dr", "Rd", "Way", "Ln", "Ct", "Pl", "Ter", "Pkwy", "Cir", "Loop", "Trl"]:
+            if any(f" {suffix}" in a for a in addrs):
+                suffixes_found.add(suffix)
+        self.assertGreaterEqual(len(suffixes_found), 5, f"Expected diverse street suffixes, found: {suffixes_found}")
+
+        has_units = any("Apt " in a or "Unit " in a or "Ste " in a or "Fl " in a for a in addrs)
+        self.assertTrue(has_units, "Expected secondary units in synthesized addresses")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

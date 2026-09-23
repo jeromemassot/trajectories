@@ -42,15 +42,128 @@ from data_gen import (
     token_hash,
 )
 
-# Extended street names for procedural address scaling
-STREET_NAMES = [
-    "Main St", "Broadway", "Market St", "Washington St", "Park Ave", "Lincoln Ave",
-    "Oak St", "Pine St", "Maple Ave", "Cedar St", "Elm St", "Chestnut St", "Walnut St",
-    "State St", "Central Ave", "2nd Ave", "3rd Ave", "4th Ave", "5th Ave", "Commerce St",
-    "Grand Ave", "Sunset Blvd", "Spring St", "Church St", "Highland Ave", "Union St",
-    "Franklin St", "Jackson St", "Jefferson St", "Madison St", "Monroe St", "Adams St",
-    "Taylor St", "Wilson St", "Clark St", "Harrison St", "Peachtree St", "Colfax Ave",
+# Rich procedural address generation components: bases, suffixes, directionals
+STREET_BASES = [
+    # Nature & Trees (25)
+    "Maple", "Oak", "Pine", "Cedar", "Elm", "Walnut", "Chestnut", "Willow", "Birch",
+    "Cypress", "Magnolia", "Spruce", "Alder", "Beech", "Ash", "Hickory", "Poplar",
+    "Sycamore", "Laurel", "Redwood", "Linden", "Aspen", "Hawthorn", "Mulberry", "Cherry",
+    # Historic & Presidents (20)
+    "Washington", "Lincoln", "Jefferson", "Madison", "Jackson", "Adams", "Franklin",
+    "Monroe", "Harrison", "Hamilton", "Roosevelt", "Wilson", "Kennedy", "Truman",
+    "Eisenhower", "McKinley", "Grant", "Clinton", "Clay", "Sherman",
+    # Urban & Geographic (25)
+    "Main", "Market", "Park", "Commerce", "Center", "High", "Church",
+    "Front", "River", "Valley", "Ridge", "Hill", "Highland", "Lake", "Forest",
+    "Meadow", "View", "Summit", "Grand", "Union", "Spring", "Sunset", "Sunrise", "Canyon",
+    # Numbered / Ordinal (16)
+    "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th",
+    "11th", "12th", "14th", "15th", "20th", "21st",
 ]
+
+STREET_SUFFIXES = [
+    "St", "Ave", "Blvd", "Dr", "Rd", "Way", "Ln", "Ct", "Pl", "Ter", "Pkwy", "Cir", "Loop", "Trl"
+]
+
+DIRECTIONALS = ["", "", "", "", "N", "S", "E", "W", "NE", "NW", "SE", "SW"]
+
+# Combined street names list for backward compatibility
+STREET_NAMES = [f"{b} {s}" for b in STREET_BASES for s in ["St", "Ave", "Blvd", "Dr", "Rd"]] + ["Broadway"]
+
+CITY_METADATA = {}
+
+
+def get_city_meta(city_name):
+    """Retrieve precomputed metadata (ref coords, short name, state, authentic zip codes) for a city."""
+    if city_name in CITY_METADATA:
+        return CITY_METADATA[city_name]
+
+    city_short = city_name.split(",")[0].strip() if "," in city_name else city_name
+    state_short = city_name.split(",")[1].strip() if "," in city_name else "TX"
+    ref_lat, ref_lon = 37.0902, -95.7129
+    zips = []
+
+    if city_name in CITY_ADDRESSES and CITY_ADDRESSES[city_name]:
+        addrs = CITY_ADDRESSES[city_name]
+        ref_lat, ref_lon = addrs[0][1], addrs[0][2]
+        for a_str, _, _ in addrs:
+            parts = a_str.strip().split()
+            last_part = parts[-1]
+            if last_part.isdigit() and len(last_part) == 5:
+                if last_part not in zips:
+                    zips.append(last_part)
+    else:
+        for c, lat, lon in CITIES:
+            if c == city_name:
+                ref_lat, ref_lon = lat, lon
+                break
+
+    meta = {
+        "city_short": city_short,
+        "state_short": state_short,
+        "ref_lat": ref_lat,
+        "ref_lon": ref_lon,
+        "zip_codes": zips,
+    }
+    CITY_METADATA[city_name] = meta
+    return meta
+
+
+def generate_procedural_address(city_name, is_business=False, rng=None):
+    """Generates an authentic procedural address string and coordinates within city bounds."""
+    r = rng or random
+    meta = get_city_meta(city_name)
+    city_short = meta["city_short"]
+    state_short = meta["state_short"]
+    ref_lat = meta["ref_lat"]
+    ref_lon = meta["ref_lon"]
+    zips = meta["zip_codes"]
+
+    num = r.randint(100, 9999)
+    dir_choice = r.choice(DIRECTIONALS)
+    dir_str = f"{dir_choice} " if dir_choice else ""
+
+    base = r.choice(STREET_BASES)
+    if base == "Broadway":
+        street_str = f"{dir_str}Broadway" if dir_choice else "Broadway"
+    else:
+        suffix = r.choice(STREET_SUFFIXES)
+        street_str = f"{dir_str}{base} {suffix}"
+
+    unit_str = ""
+    if is_business:
+        # Corporate unit designators (75% probability)
+        if r.random() < 0.75:
+            b_type = r.choice(["Ste", "Suite", "Fl", "Bldg"])
+            if b_type in ("Ste", "Suite"):
+                floor = r.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 20])
+                unit_str = f"{b_type} {floor * 100 + r.randint(0, 25)}"
+            elif b_type == "Fl":
+                unit_str = f"Fl {r.randint(2, 35)}"
+            else:
+                unit_str = f"Bldg {r.choice(['A', 'B', 'C', 'D', '1', '2', '3'])}"
+    else:
+        # Residential unit designators (45% multi-unit, 55% single-family)
+        if r.random() < 0.45:
+            r_type = r.choice(["Apt", "Unit", "#"])
+            if r_type == "Apt":
+                if r.random() < 0.35:
+                    unit_str = f"Apt {r.randint(1, 24)}{r.choice(['A', 'B', 'C', 'D', 'E', 'F'])}"
+                else:
+                    unit_str = f"Apt {r.randint(1, 99)}"
+            elif r_type == "Unit":
+                unit_str = f"Unit {r.randint(101, 899)}"
+            else:
+                unit_str = f"#{r.randint(1, 48)}"
+
+    zip_str = f" {r.choice(zips)}" if zips else ""
+    loc_part = f"{street_str} {unit_str}".strip()
+    full_address = f"{num} {loc_part}, {city_short}, {state_short}{zip_str}".replace("  ", " ")
+
+    j_lat = round(ref_lat + r.uniform(-0.035, 0.035), 4)
+    j_lon = round(ref_lon + r.uniform(-0.035, 0.035), 4)
+
+    return full_address, j_lat, j_lon
 
 
 def sample_obs_count(dist_type, mean_val, std_val=3.0, min_val=2, max_val=100, rng=None):
@@ -131,10 +244,60 @@ def sample_move_count(tier, config, rng=None):
 
 
 class AddressSynthesizer:
-    """Provides authentic addresses and generates procedural local venues at scale."""
+    """Provides authentic and procedurally generated addresses with guaranteed cross-household uniqueness."""
     def __init__(self, rng=None):
         self.rng = rng or random
         self.cache = {}
+        # Tracks every unique address string allocated across the entire dataset
+        self.allocated_residences = set()
+        # Maps (household_id, city_name, move_idx) -> (address_str, lat, lon)
+        self.household_residences = {}
+        # Maps (employer_id, city_name) -> (address_str, lat, lon)
+        self.employer_addresses = {}
+
+    def get_household_residence(self, household_id, city_name, move_idx=0, rng=None):
+        """Retrieve or allocate a residential address for a household, unique across unrelated households."""
+        r = rng or self.rng
+        key = (household_id, city_name, move_idx)
+        if key in self.household_residences:
+            return self.household_residences[key]
+
+        # Generate a procedural address ensuring it has never been allocated to any household or business
+        for _ in range(1000):
+            addr_str, lat, lon = generate_procedural_address(city_name, is_business=False, rng=r)
+            if addr_str not in self.allocated_residences:
+                self.allocated_residences.add(addr_str)
+                res_tuple = (addr_str, lat, lon)
+                self.household_residences[key] = res_tuple
+                return res_tuple
+
+        # Failsafe collision avoidance
+        addr_str = f"{addr_str} #{len(self.allocated_residences) + 1}"
+        self.allocated_residences.add(addr_str)
+        res_tuple = (addr_str, lat, lon)
+        self.household_residences[key] = res_tuple
+        return res_tuple
+
+    def get_business_address(self, employer_id, city_name, rng=None):
+        """Retrieve or allocate an employer's corporate office address in a city."""
+        r = rng or self.rng
+        key = (employer_id, city_name)
+        if key in self.employer_addresses:
+            return self.employer_addresses[key]
+
+        for _ in range(1000):
+            addr_str, lat, lon = generate_procedural_address(city_name, is_business=True, rng=r)
+            if addr_str not in self.allocated_residences:
+                self.allocated_residences.add(addr_str)
+                res_tuple = (addr_str, lat, lon)
+                self.employer_addresses[key] = res_tuple
+                return res_tuple
+
+        addr_str = f"{addr_str} Ste {len(self.allocated_residences) + 100}"
+        self.allocated_residences.add(addr_str)
+        res_tuple = (addr_str, lat, lon)
+        self.employer_addresses[key] = res_tuple
+        return res_tuple
 
     def get_city_venues(self, city_name, needed=10):
         """Retrieve verified venues and synthetically scale within city bounds if needed."""
@@ -144,24 +307,13 @@ class AddressSynthesizer:
                 return pool
         base_pool = CITY_ADDRESSES.get(city_name)
         if not base_pool:
-            for c, lat, lon in CITIES:
-                if c == city_name:
-                    base_pool = [(f"100 Main St, {city_name}", lat, lon)]
-                    break
-        if not base_pool:
-            base_pool = [(f"100 Main St, {city_name}", 37.0902, -95.7129)]
+            meta = get_city_meta(city_name)
+            base_pool = [(f"100 Main St, {city_name}", meta["ref_lat"], meta["ref_lon"])]
 
         pool = list(base_pool)
-        ref_lat, ref_lon = base_pool[0][1], base_pool[0][2]
-        city_short = city_name.split(",")[0]
-        state_short = city_name.split(",")[1].strip() if "," in city_name else ""
-
         while len(pool) < needed:
-            num = self.rng.randint(100, 8900)
-            street = self.rng.choice(STREET_NAMES)
-            j_lat = round(ref_lat + self.rng.uniform(-0.025, 0.025), 4)
-            j_lon = round(ref_lon + self.rng.uniform(-0.025, 0.025), 4)
-            pool.append((f"{num} {street}, {city_short}, {state_short}", j_lat, j_lon))
+            addr_tuple = generate_procedural_address(city_name, rng=self.rng)
+            pool.append(addr_tuple)
 
         self.cache[city_name] = pool
         return pool
@@ -294,7 +446,6 @@ def generate_person_stream(
         last = rng.choice(LAST_NAMES)
 
     dob = date(1955, 1, 1) + timedelta(days=rng.randint(0, (date(2002, 1, 1) - date(1955, 1, 1)).days))
-    household_id = household_override or f"HH-{token_hash(f'{last}{person_idx}{dob}')}"
 
     has_token = rng.random() < config.get("token_rate", 0.60)
     persistent_token = token_hash(f"{first}{last}{dob}") if has_token else None
@@ -315,10 +466,12 @@ def generate_person_stream(
     day_offsets = sorted(rng.randint(0, total_days) for _ in range(n_obs))
     timeline_dates = [START_DATE + timedelta(days=d) for d in day_offsets]
 
-    if city_override:
+    if household_override:
+        household_id = household_override
+        # Members of a shared household cohort stay together at their shared residence
         tier = "never"
-        home_city = city_override
     else:
+        household_id = f"HH-{token_hash(f'{last}{person_idx}{dob}')}"
         tier = sample_relocation_tier(
             config.get("pct_never_moved", 0.50),
             config.get("pct_county_moved", 0.30),
@@ -326,6 +479,10 @@ def generate_person_stream(
             config.get("pct_cross_us_moved", 0.05),
             rng=rng,
         )
+
+    if city_override:
+        home_city = city_override
+    else:
         origin_city_entry = rng.choice(CITIES)
         home_city = origin_city_entry[0]
 
@@ -335,19 +492,16 @@ def generate_person_stream(
     used_residences = set()
 
     if tier == "never":
-        venues = addr_synth.get_city_venues(home_city, needed=max(8, n_obs // 2))
-        primary_res = venues[0]
+        primary_res = addr_synth.get_household_residence(household_id, home_city, move_idx=0, rng=rng)
         used_residences.add(primary_res)
         residence_timeline.append((START_DATE, home_city, primary_res))
 
     elif tier == "county":
-        needed_venues = max(15, moves_count + 10)
-        venues = addr_synth.get_city_venues(home_city, needed=needed_venues)
         step_idx = max(1, len(timeline_dates) // (moves_count + 1))
         for m_i in range(moves_count + 1):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            res_addr = venues[m_i]
+            res_addr = addr_synth.get_household_residence(household_id, home_city, move_idx=m_i, rng=rng)
             used_residences.add(res_addr)
             residence_timeline.append((m_date, home_city, res_addr))
 
@@ -369,9 +523,7 @@ def generate_person_stream(
         for m_i, c_name in enumerate(route_cities):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            c_venues = addr_synth.get_city_venues(c_name, needed=max(12, m_i + 5))
-            avail_res = [v for v in c_venues if v not in used_residences]
-            res_addr = avail_res[0] if avail_res else c_venues[0]
+            res_addr = addr_synth.get_household_residence(household_id, c_name, move_idx=m_i, rng=rng)
             used_residences.add(res_addr)
             residence_timeline.append((m_date, c_name, res_addr))
 
@@ -394,9 +546,7 @@ def generate_person_stream(
         for m_i, c_name in enumerate(route_cities):
             t_idx = min(len(timeline_dates) - 1, m_i * step_idx)
             m_date = timeline_dates[t_idx]
-            c_venues = addr_synth.get_city_venues(c_name, needed=max(12, m_i + 5))
-            avail_res = [v for v in c_venues if v not in used_residences]
-            res_addr = avail_res[0] if avail_res else c_venues[0]
+            res_addr = addr_synth.get_household_residence(household_id, c_name, move_idx=m_i, rng=rng)
             used_residences.add(res_addr)
             residence_timeline.append((m_date, c_name, res_addr))
 
@@ -415,9 +565,7 @@ def generate_person_stream(
     if employer_id:
         all_cities = {entry[1] for entry in residence_timeline}
         for c_name in all_cities:
-            c_venues = addr_synth.get_city_venues(c_name, needed=10)
-            avail_bus = [v for v in c_venues if v not in used_residences]
-            bus_addr = avail_bus[0] if avail_bus else c_venues[-1]
+            bus_addr = addr_synth.get_business_address(employer_id, c_name, rng=rng)
             business_addresses[c_name] = bus_addr
 
     # Life events: Marriage & Divorce lifecycle
@@ -677,6 +825,8 @@ class BatchGenerationJob:
                     if e_idx <= n_hh_entities:
                         hh_group_id = (e_idx - 1) // 2
                         hh_override = f"HH-COHORT-{hh_group_id:04d}"
+                        hh_cities = [c[0] for c in CITIES]
+                        city_override = hh_cities[hh_group_id % len(hh_cities)]
                     elif e_idx <= n_hh_entities + n_coll_entities:
                         coll_group_id = (e_idx - n_hh_entities - 1) // 2
                         gender_cfg = str(config.get("gender", "both")).strip().lower()
@@ -739,9 +889,42 @@ def generate_preview_sample(config, target_obs=400):
     obs_counter = 1
     tier_counts = {"never": 0, "county": 0, "state": 0, "cross_us": 0}
 
+    pct_hh = float(config.get("pct_household", 5.0)) / 100.0
+    pct_coll = float(config.get("pct_collision", 2.0)) / 100.0
+
+    n_hh_entities = int(round(target_entities * pct_hh))
+    if n_hh_entities % 2 != 0:
+        n_hh_entities += 1
+    n_coll_entities = int(round(target_entities * pct_coll))
+    if n_coll_entities % 2 != 0:
+        n_coll_entities += 1
+
+    hh_cities = [c[0] for c in CITIES]
+
     for e_idx in range(1, target_entities + 1):
         sub_seed = int(hashlib.md5(f"{seed}_preview_{e_idx}".encode()).hexdigest()[:8], 16)
         entity_id = f"E{e_idx:03d}"
+
+        hh_override = None
+        name_override = None
+        city_override = None
+
+        if e_idx <= n_hh_entities:
+            hh_group_id = (e_idx - 1) // 2
+            hh_override = f"HH-COHORT-{hh_group_id:04d}"
+            city_override = hh_cities[hh_group_id % len(hh_cities)]
+        elif e_idx <= n_hh_entities + n_coll_entities:
+            coll_group_id = (e_idx - n_hh_entities - 1) // 2
+            gender_cfg = str(config.get("gender", "both")).strip().lower()
+            if gender_cfg in ("m", "male"):
+                name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Robert", "Johnson")
+            elif gender_cfg in ("f", "female"):
+                name_override = ("Mary", "Garcia") if (coll_group_id % 2 == 0) else ("Jennifer", "Smith")
+            else:
+                name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
+            state_choices = ["New York, NY", "Los Angeles, CA", "Dallas, TX", "Chicago, IL", "Miami, FL"]
+            city_override = state_choices[(coll_group_id + (e_idx % 2)) % len(state_choices)]
+
         obs_list, tier, _ = generate_person_stream(
             person_idx=e_idx,
             entity_id=entity_id,
@@ -750,6 +933,9 @@ def generate_preview_sample(config, target_obs=400):
             carrier=carrier,
             obs_counter_start=obs_counter,
             sub_seed=sub_seed,
+            household_override=hh_override,
+            name_override=name_override,
+            city_override=city_override,
         )
         tier_counts[tier] = tier_counts.get(tier, 0) + 1
         obs_counter += len(obs_list)
