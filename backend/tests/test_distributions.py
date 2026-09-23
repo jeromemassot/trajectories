@@ -414,8 +414,50 @@ class TestDistributionsAndRelocation(unittest.TestCase):
         has_units = any("Apt " in a or "Unit " in a or "Ste " in a or "Fl " in a for a in addrs)
         self.assertTrue(has_units, "Expected secondary units in synthesized addresses")
 
+    def test_no_back_and_forth_address_movement(self):
+        """Two successive observations can show the same address, but two non-successive observations must not."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 15.0,
+            "std_obs_per_person": 3.0,
+            "pct_never_moved": 0.25,
+            "pct_county_moved": 0.25,
+            "pct_state_moved": 0.25,
+            "pct_cross_us_moved": 0.25,
+        }
+        for e_idx in range(1, 100):
+            obs_list, tier, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:04d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=7000 + e_idx,
+            )
+            # Filter non-null addresses in chronological order
+            non_null_addrs = [o["address"] for o in obs_list if o.get("address")]
+            if not non_null_addrs:
+                continue
+
+            # Group consecutive identical addresses into runs
+            runs = []
+            for addr in non_null_addrs:
+                if not runs or runs[-1] != addr:
+                    runs.append(addr)
+
+            # Strict Invariant: No address can ever be left and subsequently revisited
+            # The number of consecutive runs must equal the number of distinct unique addresses
+            self.assertEqual(
+                len(runs),
+                len(set(runs)),
+                f"Entity E{e_idx:04d} (tier={tier}) moved back and forth between addresses: {runs}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

@@ -517,7 +517,7 @@ def generate_person_stream(
                 visited_cities.add(next_c)
                 route_cities.append(next_c)
             else:
-                route_cities.append(route_cities[-1])
+                break
 
         step_idx = max(1, len(timeline_dates) // len(route_cities))
         for m_i, c_name in enumerate(route_cities):
@@ -535,7 +535,7 @@ def generate_person_stream(
         for _ in range(moves_count):
             avail_states = [s for s in all_state_codes if s not in visited_states]
             if not avail_states:
-                avail_states = [s for s in all_state_codes if s != cur_state]
+                break
             next_state = rng.choice(avail_states)
             visited_states.add(next_state)
             cur_state = next_state
@@ -626,20 +626,10 @@ def generate_person_stream(
         elif em_seed < 0.95 and cur_work_email:
             sighting_emails = [cur_work_email]
 
-        # Account/service registration location: strictly Home address or Business address
-        if active_bus_res is not None and cur_work_email is not None:
-            # Corporate transaction: use business address
-            if cur_work_email in sighting_emails and cur_personal_email not in sighting_emails:
-                chosen_loc = active_bus_res
-            elif cur_work_email in sighting_emails:
-                # Both personal and work email: 50% business, 50% home
-                chosen_loc = active_bus_res if rng.random() < 0.50 else active_home_res
-            else:
-                # Personal transaction: 85% home address, 15% business address
-                chosen_loc = active_bus_res if rng.random() < 0.15 else active_home_res
-        else:
-            # No employer/business active at this date: 100% home address
-            chosen_loc = active_home_res
+        # Location continuity: An individual's observation location strictly reflects their active residence.
+        # Two successive observations can show the same address (the individual has not moved).
+        # Two non-successive observations never show the same address (individuals never move back and forth).
+        chosen_loc = active_home_res
 
         row = build_observation_row(
             obs_id=obs_id,
