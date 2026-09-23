@@ -364,7 +364,7 @@ EMAIL_DOMAINS = ["gmail.com", "outlook.com", "yahoo.com", "icloud.com", "fastmai
 FIRST_NAMES_M = ["James", "Robert", "John", "Michael", "David", "William",
                   "Daniel", "Matthew", "Anthony", "Joseph", "Kevin", "Thomas"]
 FIRST_NAMES_F = ["Mary", "Jennifer", "Linda", "Elizabeth", "Susan", "Jessica",
-                  "Sarah", "Karen", "Nancy", "Emily", "Amanda", "Laura"]
+                  "Sarah", "Karen", "Nancy", "Emily", "Amanda", "Laura", "Maria"]
 NICKNAMES = {
     "Robert": ["Rob", "Bob", "Bobby"], "William": ["Bill", "Will", "Billy"],
     "James": ["Jim", "Jimmy"], "Elizabeth": ["Liz", "Beth", "Eliza"],
@@ -372,6 +372,7 @@ NICKNAMES = {
     "Daniel": ["Dan", "Danny"], "Susan": ["Sue", "Susie"],
     "Anthony": ["Tony"], "Thomas": ["Tom", "Tommy"], "Matthew": ["Matt"],
     "Jessica": ["Jess"], "Kevin": ["Kev"], "Sarah": ["Sara"],
+    "Maria": ["Mary"], "Mary": ["Maria"],
 }
 LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia",
               "Miller", "Davis", "Martinez", "Anderson", "Taylor", "Thomas",
@@ -636,6 +637,7 @@ def make_population(
     seed=42,
     target_obs=None,
     n_individuals=None,
+    gender="both",
     obs_distribution="gaussian",
     mean_obs_per_person=10.0,
     std_obs_per_person=3.5,
@@ -685,6 +687,7 @@ def make_population(
         p_cross = float(pct_cross_us_moved if pct_cross_us_moved is not None else 0.05)
 
         cfg = {
+            "gender": gender,
             "obs_distribution": obs_distribution,
             "mean_obs_per_person": mean_obs_per_person,
             "std_obs_per_person": std_obs_per_person,
@@ -740,7 +743,13 @@ def make_population(
                 hh_override = f"HH-COHORT-{hh_group_id:04d}"
             elif e_idx <= n_hh_entities + n_coll_entities:
                 coll_group_id = (e_idx - n_hh_entities - 1) // 2
-                name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
+                gender_cfg = str(gender).strip().lower()
+                if gender_cfg in ("m", "male"):
+                    name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Robert", "Johnson")
+                elif gender_cfg in ("f", "female"):
+                    name_override = ("Mary", "Garcia") if (coll_group_id % 2 == 0) else ("Jennifer", "Smith")
+                else:
+                    name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
                 state_choices = ["New York, NY", "Los Angeles, CA", "Dallas, TX", "Chicago, IL", "Miami, FL"]
                 city_override = state_choices[(coll_group_id + (e_idx % 2)) % len(state_choices)]
 
@@ -886,8 +895,14 @@ def make_population(
     # ---------------- 1. Category 1: Neighborhood Stayers (n_neighborhood individuals) ----
     # Stay in the same neighborhood; when they move, stay in same neighborhood
     neighborhood_cities = ["Miami, FL", "Dallas, TX", "Boston, MA", "Chicago, IL", "San Francisco, CA", "New York, NY"]
+    legacy_gender_cfg = str(gender).strip().lower()
     for i in range(n_neighborhood):
-        sex = random.choice(["M", "F"])
+        if legacy_gender_cfg in ("m", "male"):
+            sex = "M"
+        elif legacy_gender_cfg in ("f", "female"):
+            sex = "F"
+        else:
+            sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
         dob = rand_date_between(date(1955, 1, 1), date(2000, 1, 1))
@@ -927,8 +942,8 @@ def make_population(
             venues1 = [home_addr] + nb_pool[1:]
             venues2 = []
 
-        # Life event: marriage surname change
-        will_marry = (i == 2 or i == 5)
+        # Life event: marriage surname change (constrained to females only)
+        will_marry = (i == 2 or i == 5) and (sex == "F")
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
         if will_marry:
@@ -974,7 +989,12 @@ def make_population(
         n_cities = 3 if i % 2 == 0 and len(cities_in_state) >= 3 else 2
         route_cities = cities_in_state[:n_cities]
 
-        sex = random.choice(["M", "F"])
+        if legacy_gender_cfg in ("m", "male"):
+            sex = "M"
+        elif legacy_gender_cfg in ("f", "female"):
+            sex = "F"
+        else:
+            sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
         dob = rand_date_between(date(1955, 1, 1), date(2000, 1, 1))
@@ -1004,7 +1024,7 @@ def make_population(
                            (route_cities[1], timeline_dates[split1:split2]),
                            (route_cities[2], timeline_dates[split2:])]
 
-        will_marry = (i == 1)
+        will_marry = (i == 1) and (sex == "F")
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
         if will_marry:
@@ -1059,7 +1079,12 @@ def make_population(
         route_cities = inter_routes[i % len(inter_routes)]
         n_cities = len(route_cities)
 
-        sex = random.choice(["M", "F"])
+        if legacy_gender_cfg in ("m", "male"):
+            sex = "M"
+        elif legacy_gender_cfg in ("f", "female"):
+            sex = "F"
+        else:
+            sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
         dob = rand_date_between(date(1955, 1, 1), date(2000, 1, 1))
@@ -1085,7 +1110,7 @@ def make_population(
             end_i = (c_i + 1) * k_step if c_i < n_cities - 1 else len(timeline_dates)
             city_splits.append((route_cities[c_i], timeline_dates[start_i:end_i]))
 
-        will_marry = (i == 0 or i == 3)
+        will_marry = (i == 0 or i == 3) and (sex == "F")
         marriage_idx = len(timeline_dates) // 2 if will_marry else None
         new_last = random.choice(LAST_NAMES) if will_marry else None
         if will_marry:
@@ -1132,7 +1157,12 @@ def make_population(
         household_landline = rand_phone(home_city)
         siblings = []
         for _ in range(2):
-            sex = random.choice(["M", "F"])
+            if legacy_gender_cfg in ("m", "male"):
+                sex = "M"
+            elif legacy_gender_cfg in ("f", "female"):
+                sex = "F"
+            else:
+                sex = random.choice(["M", "F"])
             first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
             dob = rand_date_between(date(1960, 1, 1), date(2002, 1, 1))
             p = Person(first, last, sex, dob, home_city, household_id=household_id, carrier=carrier, token_rate=token_rate)
@@ -1166,8 +1196,13 @@ def make_population(
 
     # ---------------- 5. Name-Collision Confounders (n_name_collision_pairs pairs) -
     # Unrelated people with identical names in distant cities/states
-    for _ in range(n_name_collision_pairs):
-        sex = random.choice(["M", "F"])
+    for pair_idx in range(n_name_collision_pairs):
+        if legacy_gender_cfg in ("m", "male"):
+            sex = "M"
+        elif legacy_gender_cfg in ("f", "female"):
+            sex = "F"
+        else:
+            sex = random.choice(["M", "F"])
         first = random.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = random.choice(LAST_NAMES)
         cityA, latA, lonA = random.choice(CITIES)
@@ -1181,7 +1216,7 @@ def make_population(
         people += [pA, pB]
 
         for p_sub_idx, (p, cur_c) in enumerate([(pA, cityA), (pB, cityB)]):
-            global_coll_idx = (_ * 2) + p_sub_idx
+            global_coll_idx = (pair_idx * 2) + p_sub_idx
             if alloc_map is not None and "coll" in alloc_map:
                 n_obs = alloc_map["coll"][global_coll_idx]
             else:

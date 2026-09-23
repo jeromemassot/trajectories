@@ -1244,6 +1244,7 @@
     benchmark: {
       seed: 42,
       n_individuals: 30,
+      gender: "both",
       obs_dist: "gaussian",
       mean_obs: 10.2,
       std_obs: 3.5,
@@ -1279,6 +1280,7 @@
     clean: {
       seed: 42,
       n_individuals: 30,
+      gender: "both",
       obs_dist: "gaussian",
       mean_obs: 10.2,
       std_obs: 3.5,
@@ -1314,6 +1316,7 @@
     challenging: {
       seed: 42,
       n_individuals: 30,
+      gender: "both",
       obs_dist: "negbinom",
       mean_obs: 12.0,
       std_obs: 6.0,
@@ -1349,6 +1352,7 @@
     high_mobility: {
       seed: 42,
       n_individuals: 30,
+      gender: "both",
       obs_dist: "gaussian",
       mean_obs: 12.0,
       std_obs: 4.0,
@@ -1384,6 +1388,7 @@
     massive_100k: {
       seed: 42,
       n_individuals: 100000,
+      gender: "both",
       obs_dist: "gaussian",
       mean_obs: 10.0,
       std_obs: 3.5,
@@ -1419,6 +1424,7 @@
     small: {
       seed: 42,
       n_individuals: 15,
+      gender: "both",
       obs_dist: "gaussian",
       mean_obs: 10.0,
       std_obs: 3.0,
@@ -1906,6 +1912,7 @@
       drop_email_rate: parseFloat($("#gen_drop_email_rate")?.value || 0.08),
       token_rate: parseFloat($("#gen_token_rate")?.value || 0.60),
       employer_rate: parseFloat($("#gen_employer_rate")?.value || 0.70),
+      gender: $("#gen_gender")?.value || "both",
       threshold: state.threshold,
       weights: state.weights,
       use_persistent_tokens: state.usePersistentTokens,

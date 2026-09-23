@@ -272,10 +272,24 @@ def generate_person_stream(
     """Generates an individual's complete chronological trajectory using Option A (Direct Stream)."""
     rng = random.Random(sub_seed) if sub_seed is not None else random
 
-    sex = rng.choice(["M", "F"])
+    gender_cfg = str(config.get("gender", "both")).strip().lower()
+    if gender_cfg in ("m", "male"):
+        default_sex = "M"
+    elif gender_cfg in ("f", "female"):
+        default_sex = "F"
+    else:
+        default_sex = rng.choice(["M", "F"])
+
     if name_override:
         first, last = name_override
+        if first in FIRST_NAMES_M:
+            sex = "M"
+        elif first in FIRST_NAMES_F:
+            sex = "F"
+        else:
+            sex = default_sex
     else:
+        sex = default_sex
         first = rng.choice(FIRST_NAMES_M if sex == "M" else FIRST_NAMES_F)
         last = rng.choice(LAST_NAMES)
 
@@ -407,13 +421,23 @@ def generate_person_stream(
             business_addresses[c_name] = bus_addr
 
     # Life events: Marriage & Divorce lifecycle
-    will_marry = rng.random() < 0.20
+    # Constrain surname change upon marriage strictly to Female individuals only.
+    # Male individuals never change their last name upon marriage or divorce across their entire trajectory.
+    will_marry = (rng.random() < 0.20)
     marriage_date = timeline_dates[len(timeline_dates) // 2] if will_marry else None
-    married_last = rng.choice(LAST_NAMES) if will_marry else last
-    married_email = f"{first.lower()}.{married_last.lower()}@{email_domain}" if will_marry else personal_email
 
-    will_divorce = will_marry and (rng.random() < 0.25) and (len(timeline_dates) >= 4)
+    if will_marry and sex == "F":
+        available_lasts = [l for l in LAST_NAMES if l != last]
+        married_last = rng.choice(available_lasts) if available_lasts else last
+        married_email = f"{first.lower()}.{married_last.lower()}@{email_domain}"
+    else:
+        married_last = last
+        married_email = personal_email
+
+    # Divorce is constrained to married females with sufficient trajectory length (>= 4 observations)
+    will_divorce = will_marry and (sex == "F") and (rng.random() < 0.25) and (len(timeline_dates) >= 4)
     divorce_date = timeline_dates[(len(timeline_dates) * 3) // 4] if will_divorce else None
+    # After divorce, 50% revert to maiden name, 50% keep spouse name
     divorce_revert = will_divorce and (rng.random() < 0.50)
 
     observations = []
@@ -426,7 +450,7 @@ def generate_person_stream(
         if will_divorce and d >= divorce_date:
             cur_last = last if divorce_revert else married_last
             cur_personal_email = personal_email if divorce_revert else married_email
-        elif will_marry and d >= marriage_date:
+        elif will_marry and sex == "F" and d >= marriage_date:
             cur_last = married_last
             cur_personal_email = married_email
         else:
@@ -655,7 +679,13 @@ class BatchGenerationJob:
                         hh_override = f"HH-COHORT-{hh_group_id:04d}"
                     elif e_idx <= n_hh_entities + n_coll_entities:
                         coll_group_id = (e_idx - n_hh_entities - 1) // 2
-                        name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
+                        gender_cfg = str(config.get("gender", "both")).strip().lower()
+                        if gender_cfg in ("m", "male"):
+                            name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Robert", "Johnson")
+                        elif gender_cfg in ("f", "female"):
+                            name_override = ("Mary", "Garcia") if (coll_group_id % 2 == 0) else ("Jennifer", "Smith")
+                        else:
+                            name_override = ("James", "Smith") if (coll_group_id % 2 == 0) else ("Maria", "Garcia")
                         state_choices = ["New York, NY", "Los Angeles, CA", "Dallas, TX", "Chicago, IL", "Miami, FL"]
                         city_override = state_choices[(coll_group_id + (e_idx % 2)) % len(state_choices)]
 

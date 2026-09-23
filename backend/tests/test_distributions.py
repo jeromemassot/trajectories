@@ -20,7 +20,7 @@ from massive_gen import (
     AddressSynthesizer,
     CarrierNetwork,
 )
-from data_gen import make_population
+from data_gen import make_population, FIRST_NAMES_M, FIRST_NAMES_F
 
 
 class TestDistributionsAndRelocation(unittest.TestCase):
@@ -197,6 +197,144 @@ class TestDistributionsAndRelocation(unittest.TestCase):
                 if not seen_cities or seen_cities[-1] != c:
                     self.assertNotIn(c, seen_cities, f"Entity E{e_idx:03d} returned to previously exited city {c}")
                     seen_cities.append(c)
+
+    def test_male_individuals_never_change_surname(self):
+        """Male individuals must NEVER change their surname across their entire trajectory."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "gender": "male",
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 15.0,
+            "std_obs_per_person": 3.0,
+            "min_obs_per_person": 6,
+            "enable_name_noise": False,
+        }
+        for e_idx in range(1, 60):
+            obs_list, tier, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:03d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=1000 + e_idx,
+            )
+            first_names = {o["first_name"] for o in obs_list}
+            last_names = {o["last_name"] for o in obs_list}
+            # All first names must be masculine
+            self.assertTrue(first_names.issubset(set(FIRST_NAMES_M)), f"Non-masculine name found for male: {first_names}")
+            # Male individual must have exactly ONE unique surname across all observations
+            self.assertEqual(len(last_names), 1, f"Male entity E{e_idx:03d} changed last name: {last_names}")
+
+    def test_female_individuals_can_change_surname_on_marriage(self):
+        """Female individuals can change their surname upon marriage."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "gender": "female",
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 15.0,
+            "std_obs_per_person": 3.0,
+            "min_obs_per_person": 6,
+            "enable_name_noise": False,
+        }
+        surname_changes_count = 0
+        total_females = 80
+        for e_idx in range(1, total_females + 1):
+            obs_list, tier, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:03d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=2000 + e_idx,
+            )
+            first_names = {o["first_name"] for o in obs_list}
+            self.assertTrue(first_names.issubset(set(FIRST_NAMES_F)), f"Non-feminine name found for female: {first_names}")
+            last_names = {o["last_name"] for o in obs_list}
+            if len(last_names) > 1:
+                surname_changes_count += 1
+
+        # Expected marriage rate is ~20%
+        pct_changed = surname_changes_count / total_females
+        self.assertGreater(pct_changed, 0.08, f"Marriage surname change rate too low: {pct_changed}")
+        self.assertLess(pct_changed, 0.35, f"Marriage surname change rate too high: {pct_changed}")
+
+    def test_female_divorce_reversion_behavior(self):
+        """After divorce, female individuals can revert to maiden name or keep spouse surname."""
+        addr_synth = AddressSynthesizer()
+        carrier = CarrierNetwork()
+        cfg = {
+            "gender": "female",
+            "obs_distribution": "gaussian",
+            "mean_obs_per_person": 20.0,
+            "std_obs_per_person": 2.0,
+            "min_obs_per_person": 10,
+            "enable_name_noise": False,
+        }
+        # Run across large cohort to observe both revert and retain paths
+        reverted_count = 0
+        retained_count = 0
+        for e_idx in range(1, 250):
+            obs_list, tier, _ = generate_person_stream(
+                person_idx=e_idx,
+                entity_id=f"E{e_idx:03d}",
+                config=cfg,
+                addr_synth=addr_synth,
+                carrier=carrier,
+                sub_seed=3000 + e_idx,
+            )
+            obs_list.sort(key=lambda x: x["timestamp"])
+            surnames = [o["last_name"] for o in obs_list]
+            distinct_in_order = []
+            for s in surnames:
+                if not distinct_in_order or distinct_in_order[-1] != s:
+                    distinct_in_order.append(s)
+
+            # Reversion: maiden -> married -> maiden (length 3, first == last)
+            if len(distinct_in_order) == 3 and distinct_in_order[0] == distinct_in_order[2]:
+                reverted_count += 1
+            elif len(distinct_in_order) == 2:
+                retained_count += 1
+
+        self.assertGreater(reverted_count, 0, "Expected at least one divorce reversion back to maiden name")
+        self.assertGreater(retained_count, 0, "Expected at least one retention of spouse surname")
+
+    def test_gender_parameter_population_distribution(self):
+        """The gender parameter should strictly control population gender composition."""
+        # Male only
+        obs_m = make_population(
+            n_individuals=30,
+            gender="male",
+            enable_name_noise=False,
+            pct_household=0,
+            pct_collision=0,
+        )
+        firsts_m = {o["first_name"] for o in obs_m}
+        self.assertTrue(firsts_m.issubset(set(FIRST_NAMES_M)), f"Found non-male first names in male dataset: {firsts_m - set(FIRST_NAMES_M)}")
+
+        # Female only
+        obs_f = make_population(
+            n_individuals=30,
+            gender="female",
+            enable_name_noise=False,
+            pct_household=0,
+            pct_collision=0,
+        )
+        firsts_f = {o["first_name"] for o in obs_f}
+        self.assertTrue(firsts_f.issubset(set(FIRST_NAMES_F)), f"Found non-female first names in female dataset: {firsts_f - set(FIRST_NAMES_F)}")
+
+        # Both (mixed)
+        obs_both = make_population(
+            n_individuals=50,
+            gender="both",
+            enable_name_noise=False,
+            pct_household=0,
+            pct_collision=0,
+        )
+        firsts_both = {o["first_name"] for o in obs_both}
+        self.assertTrue(any(f in FIRST_NAMES_M for f in firsts_both), "Expected male names in mixed dataset")
+        self.assertTrue(any(f in FIRST_NAMES_F for f in firsts_both), "Expected female names in mixed dataset")
 
 
 if __name__ == "__main__":

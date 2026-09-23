@@ -184,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
                     "drop_phone_rate": float(body.get("drop_phone_rate", 0.08)),
                     "token_rate": float(body.get("token_rate", 0.60)),
                     "employer_rate": float(body.get("employer_rate", 0.70)),
+                    "gender": str(body.get("gender", "both")).strip().lower(),
                     "return_summary": True,
                 }
                 new_obs, summary = make_population(**gen_params)

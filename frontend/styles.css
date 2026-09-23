@@ -781,7 +781,8 @@ footer {
   text-align: center;
 }
 
-.gen-seed-item {
+.gen-seed-item,
+.gen-gender-item {
   flex: 0 0 auto;
   min-width: auto;
 }
